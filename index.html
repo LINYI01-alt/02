@@ -85,7 +85,7 @@ async function metrics(){
     }catch(e){alert("保存失败："+e.message);btn.disabled=false;btn.textContent="确认并保存本次快照"}
   }
 }
-document.querySelectorAll("[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===p));$("content").innerHTML='<div class="panel empty">正在读取…</div>';try{await ({overview,videos,metrics,keywords,jobs,scripts,reviews,ai,risk,antiRestriction,customerTarget,sources,assets,calendar,comments,knowledge,douyin})[p]()}catch(e){$("content").innerHTML='<div class="notice">读取失败：'+esc(e.message)+'</div>'}}async async function overview(){
+document.querySelectorAll("[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===p));$("content").innerHTML='<div class="panel empty">正在读取…</div>';try{await ({overview,videos,metrics,keywords,jobs,scripts,reviews,ai,risk,antiRestriction,customerTarget,sources,assets,calendar,comments,knowledge,douyin})[p]()}catch(e){$("content").innerHTML='<div class="notice">读取失败：'+esc(e.message)+'</div>'}}async function overview(){
   const [
     videoCount,keywordCount,jobCount,pendingReviewCount,scriptCount,publishCount,commentCount,knowledgeCount,assetCount,riskCount,
     videoRes,metricRes,scriptRes,publishRes,commentRes,reviewRes
