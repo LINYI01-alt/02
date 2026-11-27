@@ -121,13 +121,13 @@ async function ai(){
     f("补充要求（可选）","studioBrief","textarea","目标人群、语气、时长、画面风格等",true)+
     f("图片尺寸","studioSize","select","1024x1536",false,[["1024x1536","竖版 2:3"],["1024x1024","方图 1:1"],["1536x1024","横版 3:2"]])+
     f("图集张数","studioCount","select","4",false,[["1","1张"],["2","2张"],["3","3张"],["4","4张"]])+
-    '</div><div class="actions"><button class="btn" id="studioText">生成文字与分镜</button><button class="btn secondary" id="studioImages">生成图集图片</button><button class="btn secondary" id="studioVideo">生成视频</button><button class="btn" id="studioAuto">一键合规创作</button></div><div class="notice">自动流程：生成脚本 → AI 创作前风控 → 低风险才提交视频任务 → 生成完成后再次检查脚本文案。当前第二轮仍是文本复审，尚不能自动逐帧/逐音轨审核视频文件；医疗内容、版权和最终成片仍需人工核验。</div></div>'+
+    '</div><div class="field wide"><label>成片画面抽帧审核（可选，MP4 / MOV，最大 200 MB、5 分钟）</label><input id="studioReviewVideo" type="file" accept="video/mp4,video/quicktime,video/webm"><div class="muted">浏览器本地抽取 6 张关键帧，不上传整段视频；需同时填写字幕/口播稿，音轨与音乐版权仍需人工核验。</div></div><div class="field wide"><label>成片字幕 / 口播稿（用于画面对照）</label><textarea id="studioReviewText" placeholder="粘贴视频字幕、口播稿或脚本文案"></textarea></div><div class="actions"><button class="btn" id="studioText">生成文字与分镜</button><button class="btn secondary" id="studioImages">生成图集图片</button><button class="btn secondary" id="studioVideo">生成视频</button><button class="btn" id="studioAuto">一键合规创作</button><button class="btn secondary" id="studioFrameReview">审核已生成视频画面</button></div><div class="notice">自动流程：生成脚本 → AI 创作前风控 → 低风险才提交视频任务。可另行上传成片进行抽帧画面预审；抽帧不等于完整视频/音轨审查，且不能自动替代人工医学、版权和最终发布复核。</div></div>'+
     '<div id="studioStatus" class="notice hidden"></div><div id="studioResult" class="panel hidden"></div><div class="panel"><h3>网站数据参考</h3><div class="muted">每次创作由服务端读取近期作品表现和关键词；不把未录入的数据当作真实数据。</div></div>');
   const status=$("studioStatus"),result=$("studioResult");
   const setStatus=(s)=>{status.classList.remove("hidden");status.textContent=s};
   const callStudio=async(action)=>{const {data,error}=await db.functions.invoke("aihubmix-studio",{body:{action,topic:$("studioTopic").value.trim(),content_type:$("studioType").value,brief:$("studioBrief").value,size:$("studioSize").value,count:Number($("studioCount").value),seconds:"8"}});if(error)throw error;if(data.error)throw new Error(data.error);return data};
-  const riskCheck=async(title,content,scriptId)=>{const {data,error}=await db.functions.invoke("content-risk-check",{body:{title,content,script_id:scriptId||undefined,content_type:"short_video"}});if(error)throw error;if(data.error)throw new Error(data.error);return data};
-  const buttons=["studioText","studioImages","studioVideo","studioAuto"].map($);
+  const riskCheck=async(title,content,scriptId,frames)=>{const body={title,content,script_id:scriptId||undefined,content_type:"short_video"};if(frames?.length)body.frames=frames;const {data,error}=await db.functions.invoke("content-risk-check",{body});if(error)throw error;if(data.error)throw new Error(data.error);return data};
+  const buttons=["studioText","studioImages","studioVideo","studioAuto","studioFrameReview"].map($);
   const busy=async(fn)=>{if(!$("studioTopic").value.trim()){toast("请先填写创作主题");return}buttons.forEach(b=>b.disabled=true);result.classList.add("hidden");try{await fn()}catch(e){setStatus("流程暂停："+(e.message||e))}finally{buttons.forEach(b=>b.disabled=false)}};
   const run=async(action)=>busy(async()=>{
     setStatus("正在连接 AIHubMix…");
@@ -145,6 +145,39 @@ async function ai(){
       const check=$("studioCheckVideo");if(check)check.onclick=async()=>{check.disabled=true;try{const {data:d,error:e}=await db.functions.invoke("aihubmix-studio",{body:{action:"video_status",video_id:id}});if(e)throw e;$("studioVideoOutput").textContent=JSON.stringify(d.result,null,2)}catch(e){toast("查询失败："+(e.message||e))}finally{check.disabled=false}};
     }
     setStatus("已完成本次操作。AI 输出均为待核验内容。");
+  });
+  $("studioFrameReview").onclick=()=>busy(async()=>{
+    const file=$("studioReviewVideo").files[0], transcript=$("studioReviewText").value.trim();
+    if(!file)throw new Error("请先选择视频文件");
+    if(!transcript)throw new Error("请粘贴字幕或口播稿，以便检查画面与内容是否一致");
+    if(file.size>200*1024*1024)throw new Error("视频超过 200 MB 限制");
+    const allowed=["video/mp4","video/quicktime","video/webm"];
+    if(!allowed.includes(file.type))throw new Error("仅支持 MP4、MOV 或 WebM 视频");
+    setStatus("正在本地读取视频时长并抽取关键帧（不会上传整段视频）…");
+    const video=document.createElement("video"),url=URL.createObjectURL(file);
+    video.preload="metadata";video.muted=true;video.src=url;
+    try{
+      await new Promise((resolve,reject)=>{video.onloadedmetadata=resolve;video.onerror=()=>reject(new Error("无法读取视频，请确认文件格式"));});
+      if(!Number.isFinite(video.duration)||video.duration<=0||video.duration>300)throw new Error("视频时长必须在 5 分钟以内");
+      const canvas=document.createElement("canvas"),ctx=canvas.getContext("2d");
+      if(!ctx)throw new Error("浏览器无法创建画面抽帧画布");
+      canvas.width=Math.min(video.videoWidth,640);canvas.height=Math.round(video.videoHeight*canvas.width/video.videoWidth);
+      const frames=[],count=6;
+      for(let i=0;i<count;i++){
+        const t=video.duration*(i+0.5)/count;
+        video.currentTime=t;
+        await new Promise((resolve,reject)=>{video.onseeked=resolve;video.onerror=()=>reject(new Error("视频抽帧失败"));});
+        ctx.drawImage(video,0,0,canvas.width,canvas.height);
+        const frame=canvas.toDataURL("image/jpeg",0.58);
+        if(frame.length>1_250_000)throw new Error("抽帧图片体积过大，请使用较低分辨率视频");
+        frames.push(frame);
+      }
+      setStatus("已抽取 6 张画面，正在执行视觉模型审核…");
+      const report=await riskCheck($("studioTopic").value.trim()||file.name,transcript,null,frames);
+      result.classList.remove("hidden");
+      result.innerHTML='<h3>成片画面抽帧审核报告</h3><p>风险分：'+esc(report.risk_score)+' / 100；结论：'+esc(report.decision)+'</p><p>'+esc(report.summary||"")+'</p><pre style="white-space:pre-wrap">'+esc(JSON.stringify(report.findings||[],null,2))+'</pre><div class="notice">已检查 '+esc(report.media_review?.frames_reviewed||frames.length)+' 张抽帧画面。此报告不包含音轨、音乐版权、完整逐帧内容或平台官方审核；系统强制要求人工复核，不会自动放行发布。</div>';
+      setStatus("画面抽帧审核完成；请按报告进行人工复核。");
+    }finally{URL.revokeObjectURL(url);video.removeAttribute("src");video.load();}
   });
   $("studioText").onclick=()=>run("text");
   $("studioImages").onclick=()=>run("image");
