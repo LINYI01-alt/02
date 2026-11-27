@@ -28,7 +28,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer;transition:trans
 async function metrics(){
   const [videoRes, metricRes] = await Promise.all([
     db.from("videos").select("id,title,source_video_id,published_at").order("published_at",{ascending:false}).limit(200),
-    db.from("video_metrics").select("id,video_id,view_count,like_count,comment_count,share_count,favorite_count,danmaku_count,completion_rate,two_second_exit_rate,traffic_incentive,data_source,recognition_status,captured_at").order("captured_at",{ascending:false}).limit(100)
+    db.from("video_metrics").select("id,video_id,view_count,like_count,comment_count,share_count,favorite_count,danmaku_count,completion_rate,two_second_exit_rate,traffic_incentive,data_source,recognition_status,captured_at").order("captured_at",{ascending:false}).limit(1500)
   ]);
   if(videoRes.error)throw videoRes.error;if(metricRes.error)throw metricRes.error;
   const vids=videoRes.data||[], rows=metricRes.data||[];
