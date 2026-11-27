@@ -186,11 +186,13 @@ async function ai(){
     setStatus("第 1/4 步：生成原创脚本与分镜…");
     const draft=await callStudio("text"),script=draft.text||"";
     if(!script.trim())throw new Error("AI 未返回脚本，已停止");
-    setStatus("第 2/4 步：执行创作前 AI 风控预审…");
-    const first=await riskCheck($("studioTopic").value.trim(),script,null);
-    if(first.decision!=="passed"||first.human_review_required){result.classList.remove("hidden");result.innerHTML='<h3>创作前预审未放行</h3><p>风险评分：'+esc(first.risk_score)+' / 100；结论：'+esc(first.decision)+'</p><pre style="white-space:pre-wrap">'+esc(first.summary||"需要修改或人工核验")+'</pre><pre style="white-space:pre-wrap">'+esc(JSON.stringify(first.findings||[],null,2))+'</pre><div class="notice">已停止视频生成。请根据审核意见修改后重新创作；这不是抖音官方审核结果。</div>';setStatus("预审未通过或需要人工核验，已停止后续生成。");return}
-    const saved=await db.from("creative_scripts").insert({user_id:user.id,topic:$("studioTopic").value.trim(),script_body:script,content_risk_status:"passed",content_risk_score:first.risk_score,content_risk_review_id:first.review_id,publication_status:"ready_for_review"}).select("id").single();
+    setStatus("第 2/4 步：保存待审核脚本并执行关联风控预审…");
+    const saved=await db.from("creative_scripts").insert({user_id:user.id,topic:$("studioTopic").value.trim(),script_body:script,content_risk_status:"pending",publication_status:"draft"}).select("id").single();
     if(saved.error)throw saved.error;
+    const first=await riskCheck($("studioTopic").value.trim(),script,saved.data.id);
+    if(first.decision!=="passed"||first.human_review_required){result.classList.remove("hidden");result.innerHTML='<h3>创作前预审未放行</h3><p>风险评分：'+esc(first.risk_score)+' / 100；结论：'+esc(first.decision)+'</p><pre style="white-space:pre-wrap">'+esc(first.summary||"需要修改或人工核验")+'</pre><pre style="white-space:pre-wrap">'+esc(JSON.stringify(first.findings||[],null,2))+'</pre><div class="notice">已停止视频生成。脚本与风控报告已关联保存，需根据审核意见修改或人工核验；这不是抖音官方审核结果。</div>';setStatus("预审未通过或需要人工核验，已停止后续生成。");return}
+    const linked=await db.from("creative_scripts").update({content_risk_status:"passed",content_risk_score:first.risk_score,content_risk_review_id:first.review_id}).eq("id",saved.data.id).eq("user_id",user.id);
+    if(linked.error)throw linked.error;
     setStatus("第 3/4 步：预审通过，正在提交视频生成任务…");
     const video=await callStudio("video_start"),v=video.result||{},id=v.id||v.task_id||v.video_id||"";
     result.classList.remove("hidden");
