@@ -422,7 +422,90 @@ async function knowledge(){
   $("addKnowledge").onclick=()=>editor("添加医学知识来源",[f("资料标题","ktitle","text",""),f("发布机构","korg","text",""),f("资料链接","kurl","url",""),f("主题","ktopic","text",""),f("证据类型 / 指南版本","ktype","text","指南 / 共识 / 系统综述 / 原始研究"),f("核验日期","kdate","text",new Date().toISOString().slice(0,10)),f("适用范围与核验备注","knote","textarea","",true)],async()=>{let q=await db.from("knowledge_sources").insert({user_id:user.id,title:$("ktitle").value,organization:$("korg").value,source_url:$("kurl").value||null,topic:$("ktopic").value,evidence_type:$("ktype").value,checked_at:$("kdate").value||null,notes:$("knote").value});if(q.error)throw q.error});
 }
 
-async function antiRestriction(){await risk();$("pagetitle").textContent="反封控诊断";}
+async function antiRestriction(){
+  const [videoRes,metricRes,riskRes]=await Promise.all([
+    db.from("videos").select("id,source_video_id,title,author_name,video_url,content_category,description,published_at,created_at").order("created_at",{ascending:false}).limit(500),
+    db.from("video_metrics").select("id,video_id,view_count,like_count,comment_count,share_count,favorite_count,completion_rate,two_second_exit_rate,traffic_incentive,data_source,recognition_status,captured_at").order("captured_at",{ascending:false}).limit(1500),
+    db.from("content_risk_reviews").select("id,content_title,risk_score,risk_level,decision,summary,created_at,script_id").order("created_at",{ascending:false}).limit(100)
+  ]);
+  for(const r of [videoRes,metricRes,riskRes])if(r.error)throw r.error;
+  const vids=videoRes.data||[],metrics=metricRes.data||[],risks=riskRes.data||[];
+  const byVideo=new Map(),latest=new Map();
+  for(const m of metrics){if(!byVideo.has(m.video_id))byVideo.set(m.video_id,[]);byVideo.get(m.video_id).push(m);if(!latest.has(m.video_id))latest.set(m.video_id,m)}
+  const latestRows=[...latest.values()],fmt=n=>n==null?"—":Number(n).toLocaleString("zh-CN"),pct=n=>n==null?"—":Number(n).toFixed(1)+"%";
+  const values=latestRows.map(x=>Number(x.view_count)).filter(Number.isFinite).sort((a,b)=>a-b);
+  const median=values.length?values[Math.floor(values.length/2)]:null;
+  const totalViews=latestRows.reduce((n,x)=>n+(Number(x.view_count)||0),0);
+  const totalLikes=latestRows.reduce((n,x)=>n+(Number(x.like_count)||0),0);
+  const totalComments=latestRows.reduce((n,x)=>n+(Number(x.comment_count)||0),0);
+  const totalShares=latestRows.reduce((n,x)=>n+(Number(x.share_count)||0),0);
+  const totalFavorites=latestRows.reduce((n,x)=>n+(Number(x.favorite_count)||0),0);
+  const interactions=totalLikes+totalComments+totalShares+totalFavorites;
+  const interactionRate=totalViews?interactions/totalViews*100:null;
+  const now=Date.now(),stale=latestRows.filter(x=>x.captured_at&&now-new Date(x.captured_at).getTime()>7*86400000).length;
+  const anomalies=[];
+  for(const v of vids){
+    const hs=byVideo.get(v.id)||[],m=hs[0];
+    if(!m)continue;
+    const age=now-new Date(m.captured_at).getTime();
+    if(age>7*86400000)anomalies.push({type:"数据过期",level:"待核实",title:v.title||"未命名作品",reason:"最近一次数据快照距今超过 7 天，暂时无法判断当前表现。",action:"进入数据分析补录最新创作者中心数据。"});
+    if(hs.length>1){
+      const prev=hs[1],gap=new Date(m.captured_at).getTime()-new Date(prev.captured_at).getTime();
+      if(gap>=24*3600000&&Number(m.view_count||0)<=Number(prev.view_count||0)+1)
+        anomalies.push({type:"快照增长停滞",level:"需关注",title:v.title||"未命名作品",reason:"相隔至少 24 小时的两次快照播放计数几乎没有增长；需核实数据口径、作品状态及采集时间。",action:"核对作品是否可见，并补录一条最新数据。"});
+    }
+    if(median!==null&&values.length>=5&&Number(m.view_count||0)<median*0.2)
+      anomalies.push({type:"相对表现偏低",level:"需关注",title:v.title||"未命名作品",reason:"该作品最新播放量低于当前作品样本中位数的 20%。这是相对表现信号，不代表账号被限流。",action:"检查选题、封面标题、发布时间、前几秒留存和内容合规。"});
+  }
+  const highRisks=risks.filter(x=>Number(x.risk_score)>=60||["high","高","critical"].includes(String(x.risk_level||"").toLowerCase())||x.decision==="blocked");
+  const mediumRisks=risks.filter(x=>!highRisks.includes(x)&&(Number(x.risk_score)>=25||["medium","中"].includes(String(x.risk_level||"").toLowerCase())));
+  let connection={connected:false,configured:false,missing:[],error:""};
+  try{const q=await db.functions.invoke("douyin-oauth",{body:{action:"status"}});if(q.error)throw q.error;connection={...connection,...(q.data||{})}}catch(e){connection.error=e.message||String(e)}
+  const statusLabel=connection.connected?"已连接抖音授权":connection.configured?"尚未连接抖音账号":"授权服务待配置";
+  const accountCard=connection.connected
+    ?'<div class="notice">已连接账号：<b>'+esc(connection.connection?.display_name||"授权账号")+'</b> · 当前授权 Scope：'+esc((connection.connection?.scopes||[]).join("、")||"未返回")+'。授权成功不等于已获得作品数据、推荐数据或账号处罚信息权限。</div>'
+    :'<div class="notice">'+esc(statusLabel)+'。'+(connection.error?"状态读取说明："+esc(connection.error):"请完成开放平台应用审核和服务端密钥配置。")+'<button class="btn secondary small" data-go="douyin" style="margin-left:8px">前往账号授权</button></div>';
+  const anomalyRows=anomalies.slice(0,30).map(x=>[esc(x.level),esc(x.type),esc(x.title),esc(x.reason),esc(x.action)]);
+  const riskRows=risks.slice(0,15).map(x=>[esc(x.content_title||"未命名内容"),fmt(x.risk_score),esc(x.risk_level||"未标级"),esc(x.decision||"待复核"),date(x.created_at),esc(x.summary||"")]);
+  const stat=(label,value,hint)=>'<div class="stat"><div class="label">'+label+'</div><div class="num">'+value+'</div><div class="hint">'+hint+'</div></div>';
+  const reportText=[
+    "反封控诊断报告",
+    "生成时间："+new Date().toLocaleString("zh-CN"),
+    "账号授权："+statusLabel,
+    "作品档案："+vids.length+" 条；有数据快照："+latest.size+" 条",
+    "最新快照播放量合计："+fmt(totalViews),
+    "互动率："+pct(interactionRate),
+    "诊断异常："+anomalies.length+" 条",
+    "高风险内容风控记录："+highRisks.length+" 条；中风险："+mediumRisks.length+" 条",
+    "",
+    "异常明细：",
+    ...anomalies.map((x,i)=>(i+1)+". ["+x.level+"] "+x.type+"｜"+x.title+"｜"+x.reason+"｜建议："+x.action),
+    "",
+    "说明：本报告基于工作台已保存的数据与AI内容风控记录生成，不是抖音官方账号处罚/限流结论。"
+  ].join("\n");
+  $("content").innerHTML=shell("反封控诊断中心","综合账号授权状态、作品历史快照和内容风控记录，识别运营异常并跟踪整改。系统只报告可见证据，不将流量波动直接判定为封控。",
+    '<div class="panel"><div class="panelhead"><h3>账号连接与官方状态核验</h3><span class="pill">'+esc(statusLabel)+'</span></div>'+accountCard+
+    '<div class="actions"><button class="btn secondary" id="refreshAnti">重新检查账号连接</button><a class="btn secondary" href="https://www.douyin.com/" target="_blank" rel="noopener">打开抖音核验官方通知 ↗</a></div>'+
+    '<p class="muted">抖音创作者中心的账号检测、违规通知、作品审核状态和权限限制，应以账号内官方页面及系统通知为准。本工作台不会伪造官方账号健康分或内部推荐权重。</p></div>'+
+    '<div class="grid">'+stat("作品档案",vids.length,"工作台已录入作品")+
+    stat("有数据快照",latest.size,"至少保存过一条作品指标")+
+    stat("最新快照播放量",fmt(totalViews),"各作品最新快照合计，不等于实时账号总播放")+
+    stat("互动率",pct(interactionRate),"赞评分享收藏 ÷ 最新快照播放")+
+    stat("异常线索",anomalies.length,"需逐项核实，不等于封控")+
+    stat("高风险风控记录",highRisks.length,"来自已保存的文本 AI 风控报告")+
+    stat("中风险风控记录",mediumRisks.length,"建议人工复核")+
+    stat("超过7天未更新",stale,"需要补录数据的作品快照")+'</div>'+
+    '<div class="panel"><div class="panelhead"><h3>一、流量与作品异常识别</h3><button class="btn secondary small" id="copyAntiReport">复制诊断报告</button></div><div class="notice">识别口径：相对表现偏低是作品间比较；快照增长停滞需要有间隔至少24小时的两条记录；数据过期只代表证据不足。单项异常都不能单独证明平台限流。</div>'+
+    table(["等级","异常类型","作品","证据与原因","建议动作"],anomalyRows)+'</div>'+
+    '<div class="panel"><div class="panelhead"><h3>二、内容违规风险关联</h3><button class="btn secondary small" data-go="risk">打开作品违规分析</button></div><div class="grid">'+stat("风控报告",risks.length,"已保存的内容风险记录")+stat("高风险",highRisks.length,"需优先人工复核")+stat("中风险",mediumRisks.length,"需结合语境判断")+'</div>'+
+    '<p class="muted">重点检查医疗广告、试管婴儿与辅助生殖、代孕推广/撮合/交易、患者隐私、虚假承诺、站外导流等场景。正常 IVF 医学科普与违规商业推广应区别判断；政策法规科普也不能只凭关键词定性。</p>'+
+    table(["内容","风险分","风险级别","处理结论","记录时间","摘要"],riskRows)+'</div>'+
+    '<div class="panel"><h3>三、整改与恢复跟踪</h3><ol class="muted"><li>先核对抖音创作者中心的官方账号检测、违规通知、作品审核及权限状态。</li><li>对命中风险的作品，进入作品违规分析查看文本检测结果；医疗和辅助生殖高风险内容必须人工复核。</li><li>对数据异常作品，进入作品管理核对作品可见状态、发布时间和历史数据口径。</li><li>整改后在数据分析中补录新快照，比较整改前后的播放、互动和完播变化。</li><li>如有官方处罚通知，按通知中的申诉入口和期限处理，保留通知及整改证据。</li></ol>'+
+    '<div class="actions"><button class="btn" data-go="metrics">补录作品数据</button><button class="btn secondary" data-go="videos">查看作品管理</button><button class="btn secondary" data-go="risk">进行内容风控检查</button><button class="btn secondary" data-go="douyin">管理账号授权</button></div></div>'+
+    '<div class="panel"><h3>四、诊断能力边界与数据来源</h3><ul class="muted"><li><b>官方数据：</b>只有在抖音授权接口实际返回且权限获批时才标记为官方接口数据。</li><li><b>工作台数据：</b>作品档案、人工录入/截图识别的数据快照及保存的风控报告。</li><li><b>AI/规则推断：</b>相对表现、快照变化和内容风险提示，均需结合上下文人工核实。</li><li><b>暂不可直接读取：</b>抖音内部推荐权重、隐性限流标记、未开放的账号健康分、私信和全部评论数据。</li><li><b>不提供绕过审核或规避平台治理的操作；</b>系统只辅助发现问题、合规整改、官方申诉和恢复跟踪。</li></ul></div>');
+  $("refreshAnti").onclick=()=>antiRestriction().catch(e=>toast("刷新失败："+(e.message||e)));
+  $("copyAntiReport").onclick=()=>GenUI.copy(reportText);
+}
 async function customerTarget(){$("content").innerHTML=shell("AI 定位客户","客户画像与选题方向模块入口已建立；正式启用前需要确定目标客户主题、业务范围和可用数据来源。",'<div class="panel"><h3>客户定位配置</h3><div class="field"><label>业务 / 内容主题</label><input id="targetTopic" placeholder="例如：辅助生殖医学科普"></div><div class="field"><label>希望触达的人群</label><textarea id="targetAudience" placeholder="描述年龄阶段、关注问题、地域或内容需求"></textarea></div><div class="field"><label>希望解决的用户问题</label><textarea id="targetNeeds" placeholder="填写用户常见困惑、顾虑和决策问题"></textarea></div><div class="notice">此页面目前为配置入口，尚未接入客户数据分析或 AI 人群识别，不会虚构客户画像或用户数据。</div></div>');}
 async function douyin(){
   const callback="https://tomlqevtbwhoduvuujsu.supabase.co/functions/v1/douyin-oauth";
