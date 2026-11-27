@@ -85,22 +85,75 @@ async function metrics(){
     }catch(e){alert("保存失败："+e.message);btn.disabled=false;btn.textContent="确认并保存本次快照"}
   }
 }
-document.querySelectorAll("[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===p));$("content").innerHTML='<div class="panel empty">正在读取…</div>';try{await ({overview,videos,metrics,keywords,jobs,scripts,reviews,ai,risk,antiRestriction,customerTarget,sources,assets,calendar,comments,knowledge,douyin})[p]()}catch(e){$("content").innerHTML='<div class="notice">读取失败：'+esc(e.message)+'</div>'}}async function overview(){
-  const [a,b,c,d]=await Promise.all([count("videos"),count("keywords"),count("collection_jobs"),count("review_queue",q=>q.eq("status","pending"))]);
-  const [vr,mr]=await Promise.all([
-    db.from("videos").select("id,title,author_name,content_category,published_at"),
-    db.from("video_metrics").select("video_id,view_count,like_count,comment_count,share_count,favorite_count,completion_rate,two_second_exit_rate,captured_at").order("captured_at",{ascending:false}).limit(1000)
+document.querySelectorAll("[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===p));$("content").innerHTML='<div class="panel empty">正在读取…</div>';try{await ({overview,videos,metrics,keywords,jobs,scripts,reviews,ai,risk,antiRestriction,customerTarget,sources,assets,calendar,comments,knowledge,douyin})[p]()}catch(e){$("content").innerHTML='<div class="notice">读取失败：'+esc(e.message)+'</div>'}}async async function overview(){
+  const [
+    videoCount,keywordCount,jobCount,pendingReviewCount,scriptCount,publishCount,commentCount,knowledgeCount,assetCount,riskCount,
+    videoRes,metricRes,scriptRes,publishRes,commentRes,reviewRes
+  ]=await Promise.all([
+    count("videos"),count("keywords"),count("collection_jobs"),
+    count("review_queue",q=>q.eq("status","pending")),
+    count("creative_scripts"),count("publication_queue"),count("comment_reply_queue"),
+    count("knowledge_sources"),count("content_assets"),count("content_risk_reviews"),
+    db.from("videos").select("id,title,author_name,content_category,published_at").order("created_at",{ascending:false}).limit(200),
+    db.from("video_metrics").select("video_id,view_count,like_count,comment_count,share_count,favorite_count,completion_rate,two_second_exit_rate,captured_at").order("captured_at",{ascending:false}).limit(1000),
+    db.from("creative_scripts").select("id,topic,medical_review_status,originality_check_status,publication_status,content_risk_status,created_at").order("created_at",{ascending:false}).limit(8),
+    db.from("publication_queue").select("id,status,scheduled_at,caption,created_at").order("created_at",{ascending:false}).limit(6),
+    db.from("comment_reply_queue").select("id,risk_level,status,created_at,comment_text").order("created_at",{ascending:false}).limit(6),
+    db.from("review_queue").select("id,review_type,status,created_at,reviewer_notes").eq("status","pending").order("created_at",{ascending:false}).limit(6)
   ]);
-  if(vr.error)throw vr.error;if(mr.error)throw mr.error;
-  const vm=new Map((vr.data||[]).map(v=>[v.id,v]));
-  const latest=new Map();for(const m of (mr.data||[])){if(!latest.has(m.video_id))latest.set(m.video_id,m)}
-  const rows=[...latest.values()],sum=k=>rows.reduce((n,x)=>n+(Number(x[k])||0),0);
-  const views=sum("view_count"),likes=sum("like_count"),comments=sum("comment_count"),shares=sum("share_count"),favorites=sum("favorite_count");
-  const interactions=likes+comments+shares+favorites,rate=views?interactions/views*100:0;
-  const complete=rows.filter(x=>x.completion_rate!=null),avgComplete=complete.length?complete.reduce((n,x)=>n+Number(x.completion_rate),0)/complete.length:null;
-  const recent=rows.slice(0,6).map(x=>{const v=vm.get(x.video_id)||{};return [esc(v.title||"未命名作品"),x.view_count??"—",x.like_count??"—",x.comment_count??"—",x.favorite_count??"—",x.completion_rate==null?"—":x.completion_rate+"%",date(x.captured_at)]});
-  $("content").innerHTML=shell("账号增长与专业运营总览","仅汇总已录入的真实作品和数据快照；未录入的数据不会估算或补齐。",
-  '<div class="grid">'+[["作品总数",a,"已录入作品"],["累计播放（最新快照合计）",views.toLocaleString("zh-CN"),rows.length+" 条作品快照"],["互动率",rate.toFixed(2)+"%","赞 + 评 + 分享 + 收藏 / 播放"],["平均完播率",avgComplete==null?"—":avgComplete.toFixed(2)+"%",complete.length+" 条有完播数据"],["关键词",b,"已维护关键词"],["采集任务",c,"任务记录，不代表已抓取"],["待审核",d,"医学与合规人工审核"],["已记录作品数据",rows.length,"至少有一条数据快照"]].map(x=>'<div class="stat"><div class="label">'+x[0]+'</div><div class="num">'+x[1]+'</div><div class="hint">'+x[2]+'</div></div>').join("")+'</div><div class="panel"><div class="panelhead"><h3>最近作品数据快照</h3><button class="btn secondary small" data-go="metrics">录入 / 查看数据</button></div>'+table(["作品","播放","点赞","评论","收藏","完播率","记录时间"],recent)+'</div><div class="panel"><div class="panelhead"><h3>专业品牌运营指标</h3><button class="btn secondary small" data-go="knowledge">医学知识库</button></div><div class="muted">医学资料核验、内容审核、栏目更新和纠错记录将在真实数据积累后统计；不会用虚构数字填充。</div></div><div class="notice">提示：互动率按最新一条快照计算；跨作品播放量是各作品最新快照之和，并非平台账号后台的官方总播放量。粉丝增长、涨粉转化等暂未录入的数据不显示。</div>');
+  for(const r of [videoRes,metricRes,scriptRes,publishRes,commentRes,reviewRes])if(r.error)throw r.error;
+  const videos=videoRes.data||[], metricRows=metricRes.data||[], scripts=scriptRes.data||[], publishes=publishRes.data||[], comments=commentRes.data||[], reviews=reviewRes.data||[];
+  const videoMap=new Map(videos.map(v=>[v.id,v]));
+  const latest=new Map();for(const m of metricRows){if(!latest.has(m.video_id))latest.set(m.video_id,m)}
+  const snapshots=[...latest.values()];
+  const sum=k=>snapshots.reduce((n,x)=>n+(Number(x[k])||0),0);
+  const views=sum("view_count"),likes=sum("like_count"),replyComments=sum("comment_count"),shares=sum("share_count"),favorites=sum("favorite_count");
+  const interactions=likes+replyComments+shares+favorites;
+  const interactionRate=views?interactions/views*100:null;
+  const completion=snapshots.filter(x=>x.completion_rate!==null&&x.completion_rate!==undefined);
+  const avgCompletion=completion.length?completion.reduce((n,x)=>n+Number(x.completion_rate),0)/completion.length:null;
+  const pendingComments=comments.filter(x=>x.status==="needs_review").length;
+  const pendingPublish=publishes.filter(x=>["draft","needs_approval","approved","queued","publishing"].includes(x.status)).length;
+  const drafts=scripts.filter(x=>x.publication_status==="draft"||x.publication_status==="ready_for_review").length;
+  const highRisk=scripts.filter(x=>["needs_revision","blocked"].includes(x.content_risk_status)).length;
+  const metricRecent=snapshots.slice(0,6).map(x=>{const v=videoMap.get(x.video_id)||{};return [esc(v.title||"未命名作品"),Number(x.view_count||0).toLocaleString("zh-CN"),Number(x.like_count||0).toLocaleString("zh-CN"),Number(x.comment_count||0).toLocaleString("zh-CN"),Number(x.share_count||0).toLocaleString("zh-CN"),x.completion_rate==null?"—":Number(x.completion_rate).toFixed(1)+"%",date(x.captured_at)]});
+  const scriptRows=scripts.slice(0,5).map(x=>[esc(x.topic||"未命名选题"),esc(x.medical_review_status||"待审核"),esc(x.originality_check_status||"待检查"),esc(x.content_risk_status||"待检测"),esc(x.publication_status||"草稿"),date(x.created_at)]);
+  const publishRows=publishes.slice(0,5).map(x=>[esc(x.caption||"未填写发布文案").slice(0,55),esc(x.status),x.scheduled_at?date(x.scheduled_at):"未排期"]);
+  const reviewRows=reviews.slice(0,5).map(x=>[esc(({medical:"医学审核",copyright:"版权审核",platform_compliance:"平台合规",engagement_reply:"互动回复"}[x.review_type])||x.review_type),esc(x.status),date(x.created_at)]);
+  const statusPill=(label,n)=>'<span class="pill">'+label+'：'+n+'</span>';
+  const stat=(label,value,hint)=>'<div class="stat"><div class="label">'+label+'</div><div class="num">'+value+'</div><div class="hint">'+hint+'</div></div>';
+  const action=(label,desc,pageName,n)=>'<button class="btn secondary" data-go="'+pageName+'" style="width:100%;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:12px"><span><b>'+label+'</b><small style="display:block;color:var(--m);font-weight:400;margin-top:3px">'+desc+'</small></span><b>'+n+'　›</b></button>';
+  $("content").innerHTML=shell("抖音运营总控驾驶舱","全局查看账号运营、内容生产、合规审核、作品表现与发布安排；指标只采用数据库中已保存的数据。",
+    '<div class="panel"><div class="panelhead"><h3>账号运行状态</h3>'+statusPill("账号授权","未完成")+'</div><div class="muted">当前展示的是工作台已录入的数据，不代表已同步抖音官方账号后台。完成官方 OAuth 与对应接口权限后，才能接入账号级粉丝、播放、评论及发布数据。</div><div class="actions" style="margin-top:12px"><button class="btn" data-go="douyin">配置抖音账号授权</button><button class="btn secondary" data-go="metrics">录入作品数据</button></div></div>'+
+    '<div class="grid">'+stat("作品总数",videoCount,"已入库作品")+
+    stat("最新快照播放量",views.toLocaleString("zh-CN"),snapshots.length+" 条作品最新快照合计")+
+    stat("互动率",interactionRate===null?"—":interactionRate.toFixed(2)+"%","赞、评、分享、收藏 ÷ 播放")+
+    stat("平均完播率",avgCompletion===null?"—":avgCompletion.toFixed(2)+"%",completion.length+" 条有效完播数据")+
+    stat("待人工审核",pendingReviewCount,"医学 / 版权 / 平台合规审核")+
+    stat("待处理评论",pendingComments,"评论回复草稿待复核")+
+    stat("待推进发布",pendingPublish,"发布队列记录，非自动发布")+
+    stat("创作中脚本",drafts,"草稿或待审核脚本")+
+    stat("违规风控记录",riskCount,"已保存的内容风控审核")+
+    stat("关键词库",keywordCount,"已维护关键词")+
+    stat("素材资产",assetCount,"已入库素材")+
+    stat("医学知识来源",knowledgeCount,"已记录知识来源")+
+    '</div>'+
+    '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px"><div class="panel"><div class="panelhead"><h3>运营待办</h3></div><div class="actions" style="display:grid;grid-template-columns:1fr;gap:9px">'+
+    action("人工审核","优先处理医学与平台合规事项","ai",pendingReviewCount)+
+    action("作品风控","查看违规风险记录与复核","risk",highRisk)+
+    action("评论互动","检查 AI 回复草稿，不自动发送","comments",pendingComments)+
+    action("发布安排","核对排期和发布状态","calendar",pendingPublish)+
+    action("脚本生产","继续选题、脚本与原创检查","scripts",drafts)+
+    '</div></div><div class="panel"><div class="panelhead"><h3>运营资产概况</h3></div><div class="muted">作品 '+videoCount+' 条 · 关键词 '+keywordCount+' 个 · 采集任务 '+jobCount+' 条 · 素材 '+assetCount+' 项 · 医学来源 '+knowledgeCount+' 条</div><div class="actions" style="display:grid;grid-template-columns:1fr;gap:9px;margin-top:12px">'+
+    action("作品库","维护已授权或手动录入的作品","videos",videoCount)+
+    action("采集任务","查看队列记录；当前无自动采集执行器","jobs",jobCount)+
+    action("医学知识库","管理指南、共识与证据来源","knowledge",knowledgeCount)+
+    action("视频素材","查看已登记的内容资产","assets",assetCount)+
+    '</div></div></div>'+
+    '<div class="panel"><div class="panelhead"><h3>最近作品表现</h3><button class="btn secondary small" data-go="metrics">数据录入 / 查看</button></div>'+table(["作品","播放","点赞","评论","分享","完播率","快照时间"],metricRecent)+'</div>'+
+    '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px"><div class="panel"><div class="panelhead"><h3>脚本生产进度</h3><button class="btn secondary small" data-go="scripts">打开脚本库</button></div>'+table(["选题","医学审核","原创检查","风控","发布状态","创建时间"],scriptRows)+'</div><div class="panel"><div class="panelhead"><h3>发布队列</h3><button class="btn secondary small" data-go="calendar">打开发布日历</button></div>'+table(["发布内容","队列状态","排期"],publishRows)+'</div></div>'+
+    '<div class="panel"><div class="panelhead"><h3>待人工审核队列</h3><button class="btn secondary small" data-go="ai">进入审核中心</button></div>'+table(["审核类型","状态","提交时间"],reviewRows)+'</div>'+
+    '<div class="notice">统计口径：播放与互动数据按每个作品最新一条已保存快照汇总，不等于抖音账号官方总览；互动率按（点赞 + 评论 + 分享 + 收藏）÷ 播放计算。空数据以“—”显示，不补造粉丝数、增长率或转化率。发布队列、采集任务和 AI 评论均不代表已自动执行；医疗健康内容仍须人工核验。</div>');
 }
 function f(label,id,type,val,wide,opts){let s='<div class="field '+(wide?"wide":"")+'"><label>'+label+'</label>';if(type==="textarea")s+='<textarea id="'+id+'">'+esc(val)+'</textarea>';else if(type==="select")s+='<select id="'+id+'">'+opts.map(o=>'<option value="'+esc(o[0])+'" '+(o[0]===val?"selected":"")+'>'+esc(o[1])+'</option>').join("")+'</select>';else s+='<input id="'+id+'" type="'+(type||"text")+'" value="'+esc(val)+'">';return s+'</div>'}
 function editor(title,fields,save){$("content").insertAdjacentHTML("afterbegin",'<div class="panel"><div class="panelhead"><h3>'+title+'</h3><button id="cancel" class="btn secondary small">收起</button></div><form id="form"><div class="formgrid">'+fields.join("")+'</div><button class="btn" type="submit">保存</button></form></div>');$("cancel").onclick=()=>$("form").closest(".panel").remove();$("form").onsubmit=async e=>{e.preventDefault();try{await save();load(page)}catch(x){toast("保存失败："+x.message)}}}
