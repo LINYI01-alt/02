@@ -117,13 +117,25 @@ async function risk(){let scripts=await get("creative_scripts","id,topic,script_
 async function ai(){
   $("content").innerHTML=shell("AI 创作一体化工作台","唯一创作入口：生成、审核、自动整改、复审与发布封控在同一流程内完成；不再需要切换审核中心或风控页面。AI 审核不等于平台官方审核。",'<div class="panel"><div class="formgrid">'+
     f("创作主题 / 用户问题","studioTopic","text","例如：如何科学理解辅助生殖中的常见误区？",true)+
-    f("内容形式","studioType","select","short_video",false,[["short_video","短视频脚本 + 分镜"],["carousel","图文/轮播图集策划"],["science","医学科普长文"],["cover","封面与标题方案"]])+
-    f("补充要求（可选）","studioBrief","textarea","目标人群、语气、时长、画面风格等",true)+
+    f("内容形式","studioType","select","short_video",false,[["short_video","竖屏短视频"],["landscape_video","横屏视频"],["promo_video","产品 / 服务宣传视频"],["carousel","图文 / 轮播图集"],["science","医学科普长文"],["cover","封面与标题方案"]])+
+    f("补充要求（可选）","studioBrief","textarea","目标受众、语气风格、核心观点、必须包含/避免的内容、品牌元素等",true)+
+    '<div id="studioVideoOptions" class="field wide"><h4>视频制作需求</h4><div class="formgrid">'+
+    f("视频时长","studioDuration","select","8",false,[["4","4 秒"],["8","8 秒"],["12","12 秒"]])+
+    f("视频画幅","studioVideoSize","select","720x1280",false,[["720x1280","竖屏 9:16"],["1280x720","横屏 16:9"],["720x720","方屏 1:1"]])+
+    f("画面风格","studioVisualStyle","select","realistic",false,[["realistic","写实 / 纪实"],["cinematic","电影感"],["animation","动画 / 3D"],["illustration","扁平插画"],["minimal","简洁产品展示"]])+
+    f("镜头运动","studioCamera","select","dynamic",false,[["static","固定镜头"],["dynamic","平稳推拉 / 运镜"],["tracking","跟拍 / 移动镜头"],["montage","多镜头快速剪辑"]])+
+    f("声音方案","studioAudio","select","voice_music",false,[["silent","无声画面，后期配音"],["voice_music","需要配音与背景音乐"],["music_only","仅背景音乐"],["voice_only","仅配音"]])+
+    f("字幕方案","studioSubtitle","select","burned",false,[["burned","画面内预留字幕 / 字幕呈现"],["post","后期单独添加字幕"],["none","不需要字幕"]])+
+    '</div><div class="muted">时长、比例等选项会作为视频生成参数提交；配音、音乐与字幕是生成提示要求，最终是否由模型直接生成取决于当前视频模型能力，必要时需后期制作。</div></div>'+
+    '<div id="studioImageOptions" class="formgrid">'+
     f("图片尺寸","studioSize","select","1024x1536",false,[["1024x1536","竖版 2:3"],["1024x1024","方图 1:1"],["1536x1024","横版 3:2"]])+
-    f("图集张数","studioCount","select","4",false,[["1","1张"],["2","2张"],["3","3张"],["4","4张"]])+
+    f("图片 / 图集张数","studioCount","select","4",false,[["1","1张"],["2","2张"],["3","3张"],["4","4张"]])+
+    '</div>'+
     '</div><div class="field wide"><label>成片画面抽帧审核（可选，MP4 / MOV，最大 200 MB、5 分钟）</label><input id="studioReviewVideo" type="file" accept="video/mp4,video/quicktime,video/webm"><div class="muted">浏览器本地抽取 6 张关键帧，不上传整段视频；需同时填写字幕/口播稿，音轨与音乐版权仍需人工核验。</div></div><div class="field wide"><label>成片字幕 / 口播稿（用于画面对照）</label><textarea id="studioReviewText" placeholder="粘贴视频字幕、口播稿或脚本文案"></textarea></div><div class="actions"><button class="btn" id="studioText">生成文字与分镜</button><button class="btn secondary" id="studioImages">生成图集图片</button><button class="btn secondary" id="studioVideo">生成视频</button><button class="btn" id="studioAuto">一键合规创作</button><button class="btn secondary" id="studioFrameReview">审核已生成视频画面</button></div><div class="notice">自动流程：生成脚本 → AI 创作前风控 → 低风险才提交视频任务。可另行上传成片进行抽帧画面预审；抽帧不等于完整视频/音轨审查，且不能自动替代人工医学、版权和最终发布复核。</div></div>'+
     '<div id="studioStatus" class="notice hidden"></div><div id="studioResult" class="panel hidden"></div><div id="studioControlPanel" class="panel"><h3>创作流程内置审核与发布封控</h3><div class="muted">创作预审、人工复核待办、历史风控结论统一显示在这里。未通过、待整改或需人工复核的作品不会进入可发布状态。</div><div id="studioQueue" class="muted">正在读取审核待办…</div><div id="studioRiskHistory" class="muted">正在读取风控记录…</div></div><div class="panel"><h3>网站数据参考</h3><div class="muted">每次创作由服务端读取近期作品表现和关键词；不把未录入的数据当作真实数据。</div></div>');
   const status=$("studioStatus"),result=$("studioResult");
+  const syncFormatOptions=()=>{const type=$("studioType").value;const isVideo=["short_video","landscape_video","promo_video"].includes(type);$("studioVideoOptions").classList.toggle("hidden",!isVideo);$("studioImageOptions").classList.toggle("hidden",isVideo);$("studioVideo").classList.toggle("hidden",!isVideo);$("studioImages").classList.toggle("hidden",!["carousel","cover"].includes(type));$("studioText").textContent=type==="science"?"生成科普长文":type==="cover"?"生成封面文案":"生成文字与分镜";$("studioAuto").textContent=isVideo?"一键合规创作视频":type==="carousel"?"一键合规创作图集":type==="science"?"一键合规创作文章":"一键合规创作方案"};
+  $("studioType").onchange=syncFormatOptions;syncFormatOptions();
   const refreshIntegratedReview=async()=>{
     const [queue,reports]=await Promise.all([
       get("review_queue","id,review_type,status,reviewer_notes,created_at,video_id,script_id"),
@@ -136,7 +148,14 @@ async function ai(){
   };
   await refreshIntegratedReview();
   const setStatus=(s)=>{status.classList.remove("hidden");status.textContent=s};
-  const callStudio=async(action)=>{const {data,error}=await db.functions.invoke("aihubmix-studio",{body:{action,topic:$("studioTopic").value.trim(),content_type:$("studioType").value,brief:$("studioBrief").value,size:$("studioSize").value,count:Number($("studioCount").value),seconds:"8"}});if(error)throw error;if(data.error)throw new Error(data.error);return data};
+  const videoPrompt=()=>[
+    "视频画面风格："+$("studioVisualStyle").selectedOptions[0].text,
+    "镜头运动："+$("studioCamera").selectedOptions[0].text,
+    "声音要求："+$("studioAudio").selectedOptions[0].text,
+    "字幕要求："+$("studioSubtitle").selectedOptions[0].text,
+    "成片规格："+$("studioDuration").value+" 秒，"+$("studioVideoSize").selectedOptions[0].text
+  ].join("；");
+  const callStudio=async(action)=>{const isVideo=action==="video_start";const baseBrief=$("studioBrief").value.trim();const brief=isVideo?[baseBrief,videoPrompt()].filter(Boolean).join("\\n视频制作参数："):baseBrief;const {data,error}=await db.functions.invoke("aihubmix-studio",{body:{action,topic:$("studioTopic").value.trim(),content_type:$("studioType").value,brief,size:isVideo?$("studioVideoSize").value:$("studioSize").value,count:Number($("studioCount").value),seconds:$("studioDuration").value}});if(error)throw error;if(data.error)throw new Error(data.error);return data};
   const riskCheck=async(title,content,scriptId,frames)=>{const body={title,content,script_id:scriptId||undefined,content_type:"short_video"};if(frames?.length)body.frames=frames;const {data,error}=await db.functions.invoke("content-risk-check",{body});if(error)throw error;if(data.error)throw new Error(data.error);return data};
   const buttons=["studioText","studioImages","studioVideo","studioAuto","studioFrameReview"].map($);
   const busy=async(fn)=>{if(!$("studioTopic").value.trim()){toast("请先填写创作主题");return}buttons.forEach(b=>b.disabled=true);result.classList.add("hidden");try{await fn()}catch(e){setStatus("流程暂停："+(e.message||e))}finally{buttons.forEach(b=>b.disabled=false)}};
@@ -204,11 +223,24 @@ async function ai(){
     if(first.decision!=="passed"||first.human_review_required){result.classList.remove("hidden");result.innerHTML='<h3>创作前预审未放行</h3><p>风险评分：'+esc(first.risk_score)+' / 100；结论：'+esc(first.decision)+'</p><pre style="white-space:pre-wrap">'+esc(first.summary||"需要修改或人工核验")+'</pre><pre style="white-space:pre-wrap">'+esc(JSON.stringify(first.findings||[],null,2))+'</pre><div class="notice">已停止视频生成。脚本与风控报告已关联保存，需根据审核意见修改或人工核验；这不是抖音官方审核结果。</div>';setStatus("预审未通过或需要人工核验，已停止后续生成。");return}
     const linked=await db.from("creative_scripts").update({content_risk_status:"passed",content_risk_score:first.risk_score,content_risk_review_id:first.review_id}).eq("id",saved.data.id).eq("user_id",user.id);
     if(linked.error)throw linked.error;
-    setStatus("第 3/4 步：预审通过，正在提交视频生成任务…");
-    const video=await callStudio("video_start"),v=video.result||{},id=v.id||v.task_id||v.video_id||"";
+    const type=$("studioType").value;
+    if(["science","cover"].includes(type)){
+      result.classList.remove("hidden");
+      result.innerHTML='<h3>合规预审通过，创作方案已生成</h3><p>风险评分：'+esc(first.risk_score)+' / 100；脚本编号：'+esc(saved.data.id)+'</p><pre style="white-space:pre-wrap">'+esc(script)+'</pre><div class="notice">当前内容已完成文字预审；发布前仍需核对事实、素材授权及平台要求。</div>';
+      setStatus("预审通过，文字方案已生成并保存。");return;
+    }
+    const isVideo=["short_video","landscape_video","promo_video"].includes(type);
+    setStatus("第 3/4 步："+(isVideo?"预审通过，正在提交视频生成任务…":"预审通过，正在生成图片素材…"));
+    const media=await callStudio(isVideo?"video_start":"image"),v=isVideo?(media.result||{}):media,id=v.id||v.task_id||v.video_id||"";
     result.classList.remove("hidden");
-    result.innerHTML='<h3>自动创作任务已提交</h3><p>创作前风控：通过（评分 '+esc(first.risk_score)+' / 100）</p><p>脚本已保存，编号：'+esc(saved.data.id)+'</p><pre id="studioAutoVideo" style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(JSON.stringify(v,null,2))+'</pre>'+(id?'<button class="btn" id="studioAutoPoll">查询视频状态并进行第二轮文案复审</button>':"")+'<div class="notice">第二轮目前复审已保存的脚本文案，不会声称已逐帧检查视频或音轨。视频完成后仍需人工确认画面、字幕、配音、音乐授权及 AI 标识，再进入发布环节。</div>';
-    setStatus("第 4/4 步：视频生成任务已提交。成片完成后可查询状态并执行第二轮文案复审。");
+    if(isVideo){
+      result.innerHTML='<h3>视频生成任务已提交</h3><p>创作前风控：通过（评分 '+esc(first.risk_score)+' / 100）</p><p>脚本编号：'+esc(saved.data.id)+'</p><p>视频规格：'+esc($("studioDuration").value)+' 秒 · '+esc($("studioVideoSize").selectedOptions[0].text)+'</p><pre id="studioAutoVideo" style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(JSON.stringify(v,null,2))+'</pre>'+(id?'<button class="btn" id="studioAutoPoll">查询视频状态并进行第二轮文案复审</button>':"")+'<div class="notice">视频任务已提交。任务完成后仍需人工核验画面、字幕、配音、音乐授权及 AI 标识。</div>';
+      setStatus("视频任务已提交，成片完成后可查询状态并进行第二轮文案复审。");
+    }else{
+      const imgs=media.images||[];
+      result.innerHTML='<h3>图集生成任务结果</h3><p>创作前风控：通过（评分 '+esc(first.risk_score)+' / 100）</p><p>脚本编号：'+esc(saved.data.id)+'</p><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">'+imgs.map((im,i)=>{const u=im.url||im.image_url||"";return u?'<div class="panel"><img src="'+esc(u)+'" alt="AI生成图片" style="width:100%;border-radius:9px"><a href="'+esc(u)+'" target="_blank" rel="noopener">打开原图</a></div>':'<div class="panel">图片 '+(i+1)+'：无可用链接</div>'}).join("")+'</div><div class="notice">图片素材已生成；请核对版权、事实和内容安全后再使用。</div>';
+      setStatus("图集已生成并完成创作前文字预审。");
+    }
     const poll=$("studioAutoPoll");if(poll)poll.onclick=async()=>{poll.disabled=true;try{const {data:d,error:e}=await db.functions.invoke("aihubmix-studio",{body:{action:"video_status",video_id:id}});if(e)throw e;const second=await riskCheck($("studioTopic").value.trim(),script,saved.data.id);$("studioAutoVideo").textContent=JSON.stringify(d.result,null,2)+"\n\n第二轮文案复审："+JSON.stringify({decision:second.decision,risk_score:second.risk_score,summary:second.summary,review_id:second.review_id},null,2);toast("已完成视频状态查询和第二轮文案复审；请人工检查成片。")}catch(e){toast("复审/查询失败："+(e.message||e))}finally{poll.disabled=false}};
   });
 }
