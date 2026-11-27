@@ -158,8 +158,88 @@ document.querySelectorAll("[data-page]").forEach(b=>b.classList.toggle("active",
 function f(label,id,type,val,wide,opts){let s='<div class="field '+(wide?"wide":"")+'"><label>'+label+'</label>';if(type==="textarea")s+='<textarea id="'+id+'">'+esc(val)+'</textarea>';else if(type==="select")s+='<select id="'+id+'">'+opts.map(o=>'<option value="'+esc(o[0])+'" '+(o[0]===val?"selected":"")+'>'+esc(o[1])+'</option>').join("")+'</select>';else s+='<input id="'+id+'" type="'+(type||"text")+'" value="'+esc(val)+'">';return s+'</div>'}
 function editor(title,fields,save){$("content").insertAdjacentHTML("afterbegin",'<div class="panel"><div class="panelhead"><h3>'+title+'</h3><button id="cancel" class="btn secondary small">收起</button></div><form id="form"><div class="formgrid">'+fields.join("")+'</div><button class="btn" type="submit">保存</button></form></div>');$("cancel").onclick=()=>$("form").closest(".panel").remove();$("form").onsubmit=async e=>{e.preventDefault();try{await save();load(page)}catch(x){toast("保存失败："+x.message)}}}
 async function remove(t,id){if(!confirm("确定删除？此操作不可撤销。"))return;let r=await db.from(t).delete().eq("id",id);if(r.error)toast(r.error.message);else load(page)}
-async function videos(){let d=await get("videos","id,title,author_name,video_url,content_category,description,published_at");$("content").innerHTML=shell("作品库","维护已授权采集或手动录入的作品资料",'<button id="add" class="btn">＋ 新增作品</button><div class="panel">'+table(["标题","作者","分类","发布时间","链接","操作"],d.map(x=>[esc(x.title),esc(x.author_name),esc(x.content_category),date(x.published_at),x.video_url?'<a href="'+esc(x.video_url)+'" target="_blank">打开 ↗</a>':"—",'<button class="btn secondary small" data-edit="'+x.id+'">编辑</button> <button class="btn danger small" data-del="'+x.id+'">删除</button>']))+'</div>');$("add").onclick=()=>videoForm();document.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>videoForm(d.find(x=>x.id===b.dataset.edit)));document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>remove("videos",b.dataset.del))}
-function videoForm(x){x=x||{};editor("作品资料",[f("来源视频 ID（必填）","sourceId","text",x.source_video_id),f("作品标题","title","text",x.title),f("作者","author","text",x.author_name),f("作品链接（必填）","url","url",x.video_url),f("分类","cat","select",x.content_category||"其他",false,["科普","真实经历","治疗流程","生育困难","备孕知识","情感支持","其他"].map(v=>[v,v])),f("简介","desc","textarea",x.description,true)],async()=>{let o={source_video_id:$("sourceId").value.trim(),title:$("title").value,author_name:$("author").value,video_url:$("url").value,content_category:$("cat").value,description:$("desc").value};if(!o.source_video_id||!o.video_url)throw Error("来源视频 ID 和作品链接为必填项");let r=x.id?await db.from("videos").update(o).eq("id",x.id):await db.from("videos").insert({...o,user_id:user.id,platform:"douyin"});if(r.error)throw r.error})}
+async function videos(){
+  const [vr,mr]=await Promise.all([
+    db.from("videos").select("id,source_video_id,title,author_name,video_url,content_category,description,published_at,duration_seconds,matched_keywords,transcript_summary,source_permission,created_at").order("created_at",{ascending:false}).limit(500),
+    db.from("video_metrics").select("id,video_id,view_count,like_count,comment_count,share_count,favorite_count,danmaku_count,completion_rate,two_second_exit_rate,traffic_incentive,data_source,recognition_status,captured_at").order("captured_at",{ascending:false}).limit(1500)
+  ]);
+  if(vr.error)throw vr.error;if(mr.error)throw mr.error;
+  const d=vr.data||[],metrics=mr.data||[],latest=new Map(),histories=new Map();
+  for(const m of metrics){if(!histories.has(m.video_id))histories.set(m.video_id,[]);histories.get(m.video_id).push(m);if(!latest.has(m.video_id))latest.set(m.video_id,m)}
+  const n=k=>d.length?d.filter(x=>x[k]).length:0;
+  const fmt=v=>v==null?"—":Number(v).toLocaleString("zh-CN");
+  const categories=["全部分类","科普","真实经历","治疗流程","生育困难","备孕知识","情感支持","其他"];
+  $("content").innerHTML=shell("作品管理中心","集中管理作品档案、来源授权、内容分类、关键词、逐条数据快照和表现历史。数据来自已录入作品及已保存快照；未授权的抖音接口不会自动补数。",
+  '<div class="grid">'+
+  '<div class="stat"><div class="label">作品总量</div><div class="num">'+d.length+'</div><div class="hint">当前账号可见作品档案</div></div>'+
+  '<div class="stat"><div class="label">已填写作品链接</div><div class="num">'+n("video_url")+'</div><div class="hint">可跳转查看原作品</div></div>'+
+  '<div class="stat"><div class="label">已记录作品数据</div><div class="num">'+latest.size+'</div><div class="hint">至少有一条数据快照</div></div>'+
+  '<div class="stat"><div class="label">科普类作品</div><div class="num">'+d.filter(x=>x.content_category==="科普").length+'</div><div class="hint">按作品分类统计</div></div></div>'+
+  '<div class="panel"><div class="panelhead"><h3>作品筛选与管理</h3><button id="addVideo" class="btn">＋ 新增作品</button></div><div class="formgrid">'+
+  '<div class="field wide"><label>搜索作品标题、作者、作品 ID、简介或关键词</label><input id="videoSearch" placeholder="输入关键词快速查找…"></div>'+
+  '<div class="field"><label>内容分类</label><select id="videoCategory">'+categories.map(x=>'<option>'+x+'</option>').join("")+'</select></div>'+
+  '<div class="field"><label>数据状态</label><select id="videoMetricFilter"><option value="all">全部</option><option value="has">已有数据快照</option><option value="none">暂无数据快照</option></select></div>'+
+  '<div class="field"><label>排序方式</label><select id="videoSort"><option value="new">最近录入</option><option value="published">发布时间（新到旧）</option><option value="views">最新播放量（高到低）</option><option value="likes">最新点赞量（高到低）</option></select></div></div>'+
+  '<div id="videoTable" style="margin-top:14px"></div><div id="videoDetail"></div></div>'+
+  '<div class="panel"><div class="panelhead"><h3>作品管理说明</h3></div><div class="muted">建议每条作品维护唯一来源视频 ID、作品链接、发布时间、时长、内容分类、命中关键词和文案摘要。作品数据可在「数据分析」模块上传截图或粘贴创作者中心数据，确认后形成历史快照。本模块不会抓取未经授权的抖音数据，也不会自动发布或删除抖音作品。</div><div class="actions" style="margin-top:12px"><button class="btn secondary" id="goMetrics">录入作品数据</button><button class="btn secondary" id="goRisk">进入作品违规分析</button><button class="btn secondary" id="goComments">进入评论管理</button></div></div>');
+  const render=()=>{
+    const q=$("videoSearch").value.trim().toLowerCase(),cat=$("videoCategory").value,mf=$("videoMetricFilter").value,sort=$("videoSort").value;
+    let rows=d.filter(x=>{
+      const hay=[x.title,x.author_name,x.source_video_id,x.description,x.transcript_summary,...(x.matched_keywords||[])].join(" ").toLowerCase();
+      return (!q||hay.includes(q))&&(cat==="全部分类"||x.content_category===cat)&&(mf==="all"||(mf==="has"?latest.has(x.id):!latest.has(x.id)));
+    });
+    rows.sort((x,y)=>sort==="published"?(new Date(y.published_at||0)-new Date(x.published_at||0)):sort==="views"?((latest.get(y.id)?.view_count||0)-(latest.get(x.id)?.view_count||0)):sort==="likes"?((latest.get(y.id)?.like_count||0)-(latest.get(x.id)?.like_count||0)):(new Date(y.created_at)-new Date(x.created_at)));
+    $("videoTable").innerHTML='<div class="muted" style="margin:8px 0">筛选结果：'+rows.length+' 条作品</div>'+table(["作品信息","分类 / 时长","发布时间","最新播放","点赞 / 评论","快照时间","操作"],rows.map(x=>{const m=latest.get(x.id);return ['<b>'+esc(x.title||"未命名作品")+'</b><div class="muted">作者：'+esc(x.author_name||"未填写")+'</div><div class="muted">ID：'+esc(x.source_video_id)+'</div>',esc(x.content_category||"未分类")+'<div class="muted">'+(x.duration_seconds?x.duration_seconds+" 秒":"时长未录入")+'</div>',date(x.published_at),m?fmt(m.view_count):"暂无",m?fmt(m.like_count)+" / "+fmt(m.comment_count):"—",m?date(m.captured_at):"—",'<button class="btn secondary small" data-video-detail="'+x.id+'">详情</button> <button class="btn secondary small" data-video-edit="'+x.id+'">编辑</button> <button class="btn danger small" data-video-del="'+x.id+'">删除</button>'] })); 
+    document.querySelectorAll("[data-video-detail]").forEach(btn=>btn.onclick=()=>detail(btn.dataset.videoDetail));
+    document.querySelectorAll("[data-video-edit]").forEach(btn=>btn.onclick=()=>videoForm(d.find(x=>x.id===btn.dataset.videoEdit)));
+    document.querySelectorAll("[data-video-del]").forEach(btn=>btn.onclick=()=>remove("videos",btn.dataset.videoDel));
+  };
+  async function detail(id){
+    const x=d.find(v=>v.id===id);if(!x)return;
+    const hs=histories.get(id)||[],m=latest.get(id)||{};
+    $("videoDetail").innerHTML='<div class="panel" style="margin-top:14px"><div class="panelhead"><h3>作品详情：'+esc(x.title||"未命名作品")+'</h3><button class="btn secondary small" id="closeVideoDetail">收起详情</button></div>'+
+      '<div class="grid"><div class="stat"><div class="label">播放量</div><div class="num">'+fmt(m.view_count)+'</div></div><div class="stat"><div class="label">点赞</div><div class="num">'+fmt(m.like_count)+'</div></div><div class="stat"><div class="label">评论</div><div class="num">'+fmt(m.comment_count)+'</div></div><div class="stat"><div class="label">分享 / 收藏</div><div class="num">'+fmt(m.share_count)+' / '+fmt(m.favorite_count)+'</div></div><div class="stat"><div class="label">完播率</div><div class="num">'+(m.completion_rate==null?"—":m.completion_rate+"%")+'</div></div><div class="stat"><div class="label">2秒跳出率</div><div class="num">'+(m.two_second_exit_rate==null?"—":m.two_second_exit_rate+"%")+'</div></div></div>'+
+      '<div class="muted">作品 ID：'+esc(x.source_video_id)+' · 作者：'+esc(x.author_name)+' · 授权来源：'+esc(x.source_permission)+' · '+(x.video_url?'<a target="_blank" rel="noopener" href="'+esc(x.video_url)+'">打开原作品 ↗</a>':"未填写作品链接")+'</div>'+
+      '<p>'+esc(x.description||"暂无作品简介")+'</p><p>命中关键词：'+esc((x.matched_keywords||[]).join("、")||"未设置")+'</p><p>内容摘要：'+esc(x.transcript_summary||"未填写")+'</p>'+
+      '<h4>数据历史（'+hs.length+' 条快照）</h4>'+table(["采集时间","播放","点赞","评论","分享","收藏","弹幕","完播率","数据来源"],hs.map(z=>[date(z.captured_at),fmt(z.view_count),fmt(z.like_count),fmt(z.comment_count),fmt(z.share_count),fmt(z.favorite_count),fmt(z.danmaku_count),z.completion_rate==null?"—":z.completion_rate+"%",esc(z.data_source||"未标注")]))+
+      '<div class="actions"><button class="btn secondary" id="detailEdit">编辑作品资料</button><button class="btn" id="detailMetrics">录入新数据快照</button></div></div>';
+    $("closeVideoDetail").onclick=()=>$("videoDetail").innerHTML="";
+    $("detailEdit").onclick=()=>videoForm(x);
+    $("detailMetrics").onclick=()=>load("metrics");
+  }
+  ["videoSearch","videoCategory","videoMetricFilter","videoSort"].forEach(id=>$(id).addEventListener(id==="videoSearch"?"input":"change",render));
+  $("addVideo").onclick=()=>videoForm();
+  $("goMetrics").onclick=()=>load("metrics");$("goRisk").onclick=()=>load("risk");$("goComments").onclick=()=>load("comments");
+  render();
+}
+function videoForm(x){
+  x=x||{};
+  const dt=x.published_at?new Date(x.published_at):null;
+  const local=dt?new Date(dt.getTime()-dt.getTimezoneOffset()*60000).toISOString().slice(0,16):"";
+  editor(x.id?"编辑作品档案":"新增作品档案",[
+    f("来源视频 ID（必填且唯一）","sourceId","text",x.source_video_id||""),
+    f("作品标题","title","text",x.title||""),
+    f("作者 / 抖音昵称","author","text",x.author_name||""),
+    f("作品链接（必填）","url","url",x.video_url||""),
+    f("内容分类","cat","select",x.content_category||"其他",false,["科普","真实经历","治疗流程","生育困难","备孕知识","情感支持","其他"].map(v=>[v,v])),
+    f("发布时间","published","datetime-local",local),
+    f("作品时长（秒）","duration","number",x.duration_seconds==null?"":String(x.duration_seconds)),
+    f("来源授权状态","permission","select",x.source_permission||"official_or_authorized",false,[["official_or_authorized","官方接口 / 已获授权"],["user_provided","用户提供 / 手动录入"],["licensed","已获内容许可"],["unknown","来源待核实"]]),
+    f("命中关键词（逗号分隔）","keywords","text",(x.matched_keywords||[]).join(", ")),
+    f("作品简介 / 发布文案","desc","textarea",x.description||"",true),
+    f("口播 / 字幕 / 内容摘要","summary","textarea",x.transcript_summary||"",true)
+  ],async()=>{
+    const id=$( "sourceId").value.trim(),url=$("url").value.trim(),duration=$("duration").value.trim();
+    if(!id)throw Error("请填写来源视频 ID");
+    if(!url)throw Error("请填写作品链接");
+    try{const u=new URL(url);if(!["http:","https:"].includes(u.protocol))throw Error()}catch{throw Error("作品链接格式不正确")}
+    if(duration&&( !Number.isInteger(Number(duration))||Number(duration)<1||Number(duration)>86400))throw Error("作品时长须为 1–86400 秒");
+    const keywords=$("keywords").value.split(/[,，、]/).map(v=>v.trim()).filter(Boolean);
+    const o={source_video_id:id,title:$("title").value.trim()||null,author_name:$("author").value.trim()||null,video_url:url,content_category:$("cat").value,description:$("desc").value.trim()||null,transcript_summary:$("summary").value.trim()||null,published_at:$("published").value?new Date($("published").value).toISOString():null,duration_seconds:duration?Number(duration):null,matched_keywords:keywords,source_permission:$("permission").value};
+    let r=x.id?await db.from("videos").update(o).eq("id",x.id).eq("user_id",user.id):await db.from("videos").insert({...o,user_id:user.id,platform:"douyin"});
+    if(r.error)throw r.error;
+  });
+}
 async function keywords(){let r=await db.from("keywords").select("id,term,group_name,is_system,is_active").order("group_name");if(r.error)throw r.error;let d=r.data||[];$("content").innerHTML=shell("关键词管理","系统关键词只读，可新增和管理个人关键词",'<button id="add" class="btn">＋ 新增关键词</button><div class="panel">'+table(["关键词","分组","类型","状态","操作"],d.map(x=>[esc(x.term),esc(x.group_name),x.is_system?"系统":"自定义",x.is_active?"启用":"停用",x.is_system?"—":'<button class="btn secondary small" data-toggle="'+x.id+'" data-active="'+x.is_active+'">'+(x.is_active?"停用":"启用")+'</button> <button class="btn danger small" data-del="'+x.id+'">删除</button>']))+'</div>');$("add").onclick=()=>editor("新增关键词",[f("关键词","term","text",""),f("分组","group","select","核心关键词",false,["核心关键词","治疗流程","女性生育知识","男性生育知识","备孕知识","真实经历","科普","情感支持"].map(v=>[v,v]))],async()=>{let z=await db.from("keywords").insert({user_id:user.id,term:$("term").value.trim(),group_name:$("group").value});if(z.error)throw z.error});document.querySelectorAll("[data-toggle]").forEach(b=>b.onclick=async()=>{let z=await db.from("keywords").update({is_active:b.dataset.active!=="true"}).eq("id",b.dataset.toggle);if(z.error)toast(z.error.message);else load(page)});document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>remove("keywords",b.dataset.del))}
 async function jobs(){let d=await get("collection_jobs","id,status,target_count,collected_count,source,created_at,error_message");$("content").innerHTML=shell("采集任务","创建并跟踪任务；当前未连接采集执行器",'<button id="add" class="btn">＋ 创建任务</button><div class="panel">'+table(["状态","目标","已采集","数据源","创建时间","错误"],d.map(x=>[esc(x.status),x.target_count,x.collected_count,esc(x.source),date(x.created_at),esc(x.error_message)]))+'</div><div class="notice">新建任务只会写入队列记录；真实采集需要官方/获授权数据接口及后台 worker。</div>');$("add").onclick=()=>editor("创建任务",[f("目标作品数","target","number","500"),f("数据源","source","select","official_api",false,[["official_api","官方 API / 授权接口"],["manual","手动导入"]])],async()=>{let n=Number($("target").value);if(!Number.isInteger(n)||n<1||n>10000)throw Error("目标数需为 1–10000");let z=await db.from("collection_jobs").insert({user_id:user.id,target_count:n,source:$("source").value,status:"queued"});if(z.error)throw z.error})}
 async function scripts(){let d=await get("creative_scripts","id,topic,script_body,medical_review_status,originality_check_status,publication_status,content_risk_status,content_risk_score");$("content").innerHTML=shell("原创脚本","管理草稿与医学、原创性和平台风控状态",'<button id="add" class="btn">＋ 新建脚本</button><div class="panel">'+table(["选题","脚本内容","医学审核","原创检查","AI风控","风险分","发布状态","操作"],d.map(x=>[esc(x.topic),esc((x.script_body||"").slice(0,70)),esc(x.medical_review_status),esc(x.originality_check_status),esc(x.content_risk_status||"pending"),x.content_risk_score==null?"—":String(x.content_risk_score),esc(x.publication_status),'<button class="btn secondary small" data-edit="'+x.id+'">编辑</button> <button class="btn small" data-risk-script="'+x.id+'">AI风控</button> <button class="btn danger small" data-del="'+x.id+'">删除</button>']))+'</div><div class="notice">发布前必须通过 AI 内容风控；医疗健康类作品还必须完成医学人工审核。AI 预审不能代替抖音官方审核。</div>');$("add").onclick=()=>scriptForm();document.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>scriptForm(d.find(x=>x.id===b.dataset.edit)));document.querySelectorAll("[data-risk-script]").forEach(b=>b.onclick=()=>{riskPrefill=d.find(x=>x.id===b.dataset.riskScript);load("risk")});document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>remove("creative_scripts",b.dataset.del))}
