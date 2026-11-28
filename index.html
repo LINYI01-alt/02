@@ -99,7 +99,7 @@ document.querySelectorAll("[data-page]").forEach(b=>b.classList.toggle("active",
     else if(kind==="graphic")await graphicStudio();
     else await videoStudio();
   };
-  document.querySelectorAll("[data-studio]").forEach(b=>b.onclick=()=>activate(b.dataset.studio).catch(e=>{$("aiStudioContent").innerHTML='<div class="notice">读取失败：'+esc(e.message||e)+'</div>'}));
+  document.querySelectorAll("[data-studio]").forEach(b=>b.onclick=()=>activate(b.dataset.studio).catch(e=>{($("aiStudioContent")||$("content")).innerHTML='<div class="notice">读取失败：'+esc(e.message||e)+'</div>'}));
   await activate("subtitle");
 }
 async function saveCreativeProject(kind,topic,brief,config){
@@ -248,7 +248,7 @@ async function creativeHistory(kind){
 }
 async function subtitleStudio(){
   const history=await creativeHistory("subtitle");
-  $("aiStudioContent").innerHTML=shell("滚动字幕创作系统","独立字幕创作流程：AI 生成文案 → 作品风险检测 → 编辑字幕 → 生成 SRT/VTT → 浏览器渲染滚动字幕视频。视频导出为 WebM，需使用支持 WebM 的播放器或剪辑软件。",'<div class="panel"><div class="formgrid">'+
+  ($("aiStudioContent")||$("content")).innerHTML=shell("滚动字幕创作系统","独立字幕创作流程：AI 生成文案 → 作品风险检测 → 编辑字幕 → 生成 SRT/VTT → 浏览器渲染滚动字幕视频。视频导出为 WebM，需使用支持 WebM 的播放器或剪辑软件。",'<div class="panel"><div class="formgrid">'+
     f("作品主题","subTopic","text","例如：给正在努力生活的人一段鼓励",true)+
     f("创作要求","subBrief","textarea","温暖、真实、节奏清楚；适合竖屏滚动字幕，不夸大、不制造焦虑。",true)+
     f("视频时长（秒）","subDuration","number","30")+
@@ -316,7 +316,7 @@ async function subtitleStudio(){
 }
 async function graphicStudio(){
   const history=await creativeHistory("graphic");
-  $("aiStudioContent").innerHTML=shell("图文作品创作系统","独立图文流程：AI 生成分页文案 → 作品风险检测 → AI 生成统一视觉素材 → 文字排版合成 → 下载高清 PNG。",'<div class="panel"><div class="formgrid">'+
+  ($("aiStudioContent")||$("content")).innerHTML=shell("图文作品创作系统","独立图文流程：AI 生成分页文案 → 作品风险检测 → AI 生成统一视觉素材 → 文字排版合成 → 下载高清 PNG。",'<div class="panel"><div class="formgrid">'+
     f("图文主题","graTopic","text","例如：科学认识辅助生殖的六个常见问题",true)+
     f("图文风格要求","graBrief","textarea","清晰、专业、适合手机阅读；每页重点突出，统一视觉风格。",true)+
     f("图片张数","graCount","select","4",false,[["1","1 张"],["2","2 张"],["3","3 张"],["4","4 张"]])+
@@ -377,7 +377,7 @@ async function graphicStudio(){
 }
 async function videoStudio(){
   const history=await creativeHistory("video");
-  $("aiStudioContent").innerHTML=shell("视频作品创作系统","独立视频流程：AI 生成脚本与分镜 → 作品风险检测 → 提交视频模型 → 查询生成任务 → 成片复核。是否能生成取决于已配置且可调用的视频模型。",'<div class="panel"><div class="formgrid">'+
+  ($("aiStudioContent")||$("content")).innerHTML=shell("视频作品创作系统","独立视频流程：AI 生成脚本与分镜 → 作品风险检测 → 提交视频模型 → 查询生成任务 → 成片复核。是否能生成取决于已配置且可调用的视频模型。",'<div class="panel"><div class="formgrid">'+
     f("视频主题","vidTopic","text","例如：一分钟讲清楚一个常见知识点",true)+
     f("创作要求","vidBrief","textarea","竖屏、节奏清楚、原创表达；镜头画面与口播内容一致。",true)+
     f("视频时长","vidDuration","select","20",false,[["20","20 秒"],["30","30 秒"],["50","50 秒"]])+
