@@ -86,7 +86,7 @@ async function metrics(){
   }
 }
 
-async function saveCreativeProject(kind,topic,brief,config){
+document.querySelectorAll("[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===p));$("content").innerHTML='<div class="panel empty">正在读取…</div>';try{await ({overview,videos,metrics,keywords,jobs,scripts,reviews,ai,subtitleStudio,graphicStudio,videoStudio,risk,antiRestriction,customerTarget,sources,assets,calendar,comments,knowledge,douyin})[p]()}catch(e){$("content").innerHTML='<div class="notice">读取失败：'+esc(e.message)+'</div>'}}async function saveCreativeProject(kind,topic,brief,config){
   const q=await db.from("creative_projects").insert({user_id:user.id,work_type:kind,title:topic.slice(0,160),topic,brief,status:"generating",config:config||{}}).select("id").single();
   if(q.error)throw q.error;return q.data.id;
 }
@@ -300,7 +300,8 @@ async function videoStudio(){
   };
 }
 
-document.querySelectorAll("[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===p));$("content").innerHTML='<div class="panel empty">正在读取…</div>';try{await ({overview,videos,metrics,keywords,jobs,scripts,reviews,ai,subtitleStudio,graphicStudio,videoStudio,risk,antiRestriction,customerTarget,sources,assets,calendar,comments,knowledge,douyin})[p]()}catch(e){$("content").innerHTML='<div class="notice">读取失败：'+esc(e.message)+'</div>'}}async function overview(){
+
+async function overview(){
   const [
     videoCount,keywordCount,jobCount,pendingReviewCount,scriptCount,publishCount,commentCount,knowledgeCount,assetCount,riskCount,
     videoRes,metricRes,scriptRes,publishRes,commentRes,reviewRes
