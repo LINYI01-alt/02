@@ -235,7 +235,7 @@ async function downloadCreativeWork(id){
 window.previewCreativeWork=previewCreativeWork;
 window.downloadCreativeWork=downloadCreativeWork;
 window.deleteCreativeWork=deleteCreativeWork;
-async async function retryCreativeVideo(projectId){
+async function retryCreativeVideo(projectId){
   const b=document.querySelector('[data-retry-video="'+projectId+'"]');
   if(b){b.disabled=true;b.textContent="正在重新提交…"}
   try{
