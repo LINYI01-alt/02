@@ -366,7 +366,17 @@ async function ai(){
       const report=await riskCheck($("studioTopic").value.trim()||file.name,transcript,activeStudioScriptId,frames);
       result.classList.remove("hidden");
       result.innerHTML='<h3>成片画面抽帧审核报告</h3><p>风险分：'+esc(report.risk_score)+' / 100；结论：'+esc(report.decision)+'</p><p>'+esc(report.summary||"")+'</p><pre style="white-space:pre-wrap">'+esc(JSON.stringify(report.findings||[],null,2))+'</pre><div class="notice">已检查 '+esc(report.media_review?.frames_reviewed||frames.length)+' 张抽帧画面。此报告不包含音轨、音乐版权、完整逐帧内容或平台官方审核；系统强制要求人工复核，不会自动放行发布。</div>';
-      setStatus("画面抽帧审核完成；请按报告进行人工复核。");
+      if(Number(report.risk_score)<25&&report.decision!=="blocked"&&report.review_id){
+        result.innerHTML+='<div class="panel"><h4>最终人工确认</h4><p class="muted">请确认已人工检查完整视频、所有镜头、字幕、配音、背景音乐版权、素材肖像授权、医学事实与资质，以及抖音官方账号通知。抽帧 AI 不能替代完整人工检查。</p><button class="btn" id="studioApproveMedia">确认完成全部人工检查并批准</button></div>';
+        $("studioApproveMedia").onclick=async()=>{
+          if(!confirm("确认已检查完整视频与音轨、音乐和素材授权、必要资质及抖音官方通知？未检查完整内容请勿批准。"))return;
+          const {data:approved,error:approveError}=await db.functions.invoke("approve-content-risk",{body:{review_id:report.review_id,confirm_manual_review:true}});
+          if(approveError||approved?.error){toast("批准失败："+(approveError?.message||approved?.error));return}
+          toast("成片人工复核已记录；发布队列现可进行数据库安全校验");
+          await refreshIntegratedReview();
+        };
+      }
+      setStatus("画面抽帧审核完成；如低风险，可完成人工核验后批准。");
     }finally{URL.revokeObjectURL(url);video.removeAttribute("src");video.load();}
   });
   $("studioText").onclick=()=>run("text");
