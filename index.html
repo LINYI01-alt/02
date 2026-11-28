@@ -289,7 +289,7 @@ async function ai(){
     "字幕要求："+$("studioSubtitle").selectedOptions[0].text,
     "成片规格："+$("studioDuration").value+" 秒，"+$("studioVideoSize").selectedOptions[0].text
   ].join("；");
-  const callStudio=async(action,approvedScript)=>{const isVideo=action==="video_start";const baseBrief=$("studioBrief").value.trim();const brief=isVideo?[baseBrief,videoPrompt()].filter(Boolean).join("\\n视频制作参数："):baseBrief;const {data,error}=await db.functions.invoke("aihubmix-studio",{body:{action,topic:$("studioTopic").value.trim(),content_type:$("studioType").value,brief,approved_script:approvedScript||undefined,size:isVideo?$("studioVideoSize").value:$("studioSize").value,count:Number($("studioCount").value),seconds:$("studioDuration").value}});if(error)throw error;if(data.error)throw new Error(data.error);return data};
+  const callStudio=async(action,approvedScript,approvedScriptId)=>{const isVideo=action==="video_start";const baseBrief=$("studioBrief").value.trim();const brief=isVideo?[baseBrief,videoPrompt()].filter(Boolean).join("\\n视频制作参数："):baseBrief;const {data,error}=await db.functions.invoke("aihubmix-studio",{body:{action,topic:$("studioTopic").value.trim(),content_type:$("studioType").value,brief,approved_script:approvedScript||undefined,approved_script_id:approvedScriptId||undefined,size:isVideo?$("studioVideoSize").value:$("studioSize").value,count:Number($("studioCount").value),seconds:$("studioDuration").value}});if(error)throw error;if(data.error)throw new Error(data.error);return data};
   const riskCheck=async(title,content,scriptId,frames)=>{const body={title,content,script_id:scriptId||undefined,content_type:"short_video"};if(frames?.length)body.frames=frames;const {data,error}=await db.functions.invoke("content-risk-check",{body});if(error)throw error;if(data.error)throw new Error(data.error);return data};
   const buttons=["studioText","studioImages","studioVideo","studioAuto","studioFrameReview"].map($);
   const busy=async(fn)=>{if(!$("studioTopic").value.trim()){toast("请先填写创作主题");return}buttons.forEach(b=>b.disabled=true);result.classList.add("hidden");try{await fn()}catch(e){setStatus("流程暂停："+(e.message||e))}finally{buttons.forEach(b=>b.disabled=false)}};
@@ -302,18 +302,40 @@ async function ai(){
       (data.text?'<h4>未放行的草稿（仅供整改，不可进入后续制作）</h4><pre style="white-space:pre-wrap">'+esc(data.text)+'</pre>':'')+
       '<h4>风险发现</h4>'+ (findings.length?findings.map(x=>'<div class="notice"><b>'+esc(x.category)+' · '+esc(x.severity)+'</b><p>'+esc(x.excerpt||"")+'</p>'+esc(x.reason||"")+'</div>').join(""):'<pre style="white-space:pre-wrap">'+esc(JSON.stringify(data.events||[],null,2))+'</pre>')+
       '<div class="notice">已暂停后续图像/视频生成。请根据合规建议修改内容，重新审核；此结果不是抖音官方审核结论。</div>';
-    setStatus("严格安全模式已拦截：未通过预审或需要人工复核。");
+    if(data.stage==="manual_review"&&data.script_id&&report.review_id&&Number(report.risk_score)<25){
+      result.innerHTML+='<div class="panel"><h4>专业内容人工复核</h4><p class="muted">该草稿已保存并关联风控记录。请先核验医学事实、证据来源、资质、患者隐私和宣传边界；批准后才可生成图像/视频。</p><button class="btn" id="studioApproveDraft">确认人工核验并批准此脚本</button></div>';
+      $("studioApproveDraft").onclick=async()=>{
+        if(!confirm("确认已完成专业内容核验并确认该脚本可用于制作？视频成片仍须另行检查完整画面、音轨及授权。"))return;
+        const {data:approved,error}=await db.functions.invoke("approve-content-risk",{body:{review_id:report.review_id,confirm_manual_review:true}});
+        if(error||approved?.error){toast("批准失败："+(error?.message||approved?.error));return}
+        activeStudioScriptId=data.script_id;
+        toast("脚本人工复核已通过。现在可点击“生成视频/生成图集”，系统将使用这份已批准脚本。");
+        setStatus("脚本已人工批准；请点击生成视频或生成图集继续。");
+        $("studioApproveDraft").disabled=true;
+        $("studioApproveDraft").textContent="已批准";
+      };
+    }
+    setStatus(data.stage==="manual_review"?"低风险专业内容已保存，等待人工复核。":"严格安全模式已拦截：未通过预审或需要整改。");
   };
   const run=async(action)=>busy(async()=>{
     setStatus("严格安全模式：正在读取规则并执行创作前预审…");
     let data;
     if(action==="image"||action==="video_start"){
-      setStatus("第 1/2 步：先生成并审核完整脚本…");
-      const draft=await callStudio("text");
-      if(draft.blocked){showBlocked(draft);return}
-      if(!draft.text?.trim())throw new Error("没有生成可审核脚本，已停止媒体生成");
-      setStatus("第 2/2 步：脚本通过预审，正在提交媒体生成…");
-      data=await callStudio(action,draft.text);
+      let scriptText="",scriptId=activeStudioScriptId;
+      if(scriptId){
+        const saved=await db.from("creative_scripts").select("script_body,content_risk_status").eq("id",scriptId).eq("user_id",user.id).single();
+        if(saved.error)throw saved.error;
+        if(saved.data.content_risk_status!=="passed")throw new Error("当前关联脚本尚未通过严格风控/人工复核。");
+        scriptText=String(saved.data.script_body||"");
+      }else{
+        setStatus("第 1/2 步：先生成并审核完整脚本…");
+        const draft=await callStudio("text");
+        if(draft.blocked){showBlocked(draft);return}
+        if(!draft.text?.trim())throw new Error("没有生成可审核脚本，已停止媒体生成");
+        scriptText=draft.text;
+      }
+      setStatus("第 2/2 步：脚本通过严格预审，正在提交媒体生成…");
+      data=await callStudio(action,scriptText,scriptId);
       if(data.blocked){showBlocked(data);return}
     }else data=await callStudio(action);
     result.classList.remove("hidden");
@@ -404,7 +426,7 @@ async function ai(){
     }
     const isVideo=["short_video","landscape_video","promo_video"].includes(type);
     setStatus("第 3/4 步："+(isVideo?"预审通过，正在提交视频生成任务…":"预审通过，正在生成图片素材…"));
-    const media=await callStudio(isVideo?"video_start":"image",script),v=isVideo?(media.result||{}):media,id=v.id||v.task_id||v.video_id||"";
+    const media=await callStudio(isVideo?"video_start":"image",script,saved.data.id),v=isVideo?(media.result||{}):media,id=v.id||v.task_id||v.video_id||"";
     result.classList.remove("hidden");
     if(isVideo){
       result.innerHTML='<h3>视频生成任务已提交</h3><p>创作前风控：通过（评分 '+esc(first.risk_score)+' / 100）</p><p>脚本编号：'+esc(saved.data.id)+'</p><p>视频规格：'+esc($("studioDuration").value)+' 秒 · '+esc($("studioVideoSize").selectedOptions[0].text)+'</p><pre id="studioAutoVideo" style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(JSON.stringify(v,null,2))+'</pre>'+(id?'<button class="btn" id="studioAutoPoll">查询视频状态并进行第二轮文案复审</button>':"")+'<div class="notice">视频任务已提交。任务完成后仍需人工核验画面、字幕、配音、音乐授权及 AI 标识。</div>';
