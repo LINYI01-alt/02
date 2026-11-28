@@ -235,15 +235,33 @@ async function downloadCreativeWork(id){
 window.previewCreativeWork=previewCreativeWork;
 window.downloadCreativeWork=downloadCreativeWork;
 window.deleteCreativeWork=deleteCreativeWork;
-async function creativeHistory(kind){
-  const q=await db.from("creative_projects").select("id,title,status,created_at,error_message,generated_text,outputs").eq("user_id",user.id).eq("work_type",kind).order("created_at",{ascending:false}).limit(50);
+async async function retryCreativeVideo(projectId){
+  const b=document.querySelector('[data-retry-video="'+projectId+'"]');
+  if(b){b.disabled=true;b.textContent="正在重新提交…"}
+  try{
+    const p=await db.from("creative_projects").select("id,title,topic,brief,status,script_id,generated_text,outputs,config").eq("id",projectId).eq("user_id",user.id).single();
+    if(p.error)throw p.error;
+    const project=p.data||{},scriptId=project.script_id;
+    if(!scriptId||!project.generated_text)throw new Error("原视频脚本记录不完整，无法自动重试");
+    const refs=Array.isArray(project.outputs?.reference_videos)?project.outputs.reference_videos:[];
+    const {data,error}=await db.functions.invoke("aihubmix-studio",{body:{action:"video_start",topic:project.topic||project.title,brief:project.brief||"",content_type:"short_video",seconds:project.config?.duration||20,size:project.config?.size||"720x1280",approved_script:project.generated_text,approved_script_id:scriptId,reference_videos:refs.map(x=>x.url).filter(Boolean)}});
+    if(error)throw error;
+    if(data?.blocked)throw new Error(data.note||"本次作品未通过生成检查");
+    const result=data.result||{},taskId=result.id||result.task_id||result.video_id||"";
+    await updateCreativeProject(projectId,{status:"task_submitted",error_message:null,outputs:{...(project.outputs||{}),task_id:taskId,provider_result:result,model:data.model||null,retried_at:new Date().toISOString(),reference_videos:refs}});
+    toast("已重新提交视频任务"+(taskId?"，任务编号："+taskId:""));
+    load("ai").catch(()=>{});
+  }catch(e){if(b){b.disabled=false;b.textContent="重新提交视频生成"}toast("重新提交失败："+(e.message||e))}
+}
+function creativeHistory(kind){
+  const q=await db.from("creative_projects").select("id,title,status,created_at,error_message,generated_text,outputs,script_id,topic,brief,config").eq("user_id",user.id).eq("work_type",kind).order("created_at",{ascending:false}).limit(50);
   if(q.error)throw q.error;
   const rows=q.data||[];
   if(!rows.length)return '<p class="muted">暂无作品记录。生成作品后会自动保存在这里。</p>';
   return '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">'+rows.map(x=>{
     const o=x.outputs||{},hasMedia=kind==="graphic"?(!!(o.images||[]).length||!!(o.composite_paths||[]).length):kind==="subtitle"?!!o.webm_path:creativeMediaUrls(o).some(v=>/(video|mp4|webm|play|download)/i.test(v.key)||/\.(mp4|webm|mov)(\?|$)/i.test(v.url));
     const preview=kind==="subtitle"?"预览字幕":kind==="graphic"?"查看图文":"播放视频";
-    return '<div class="panel"><h4>'+esc(x.title||"未命名作品")+'</h4><p class="muted">状态：'+esc(x.status)+' · '+date(x.created_at)+'</p>'+(x.error_message?'<p class="muted">'+esc(x.error_message)+'</p>':'')+'<p class="muted">'+(hasMedia?"已保存媒体文件 / 预览资源":"已保存文案或任务信息")+'</p><div class="actions"><button class="btn" onclick="previewCreativeWork(\''+esc(x.id)+'\')">'+preview+'</button><button class="btn secondary small" onclick="downloadCreativeWork(\''+esc(x.id)+'\')">下载</button><button class="btn danger small" onclick="deleteCreativeWork(\''+esc(x.id)+'\')">删除</button></div></div>';
+    return '<div class="panel"><h4>'+esc(x.title||"未命名作品")+'</h4><p class="muted">状态：'+esc(x.status)+' · '+date(x.created_at)+'</p>'+(x.error_message?'<p class="muted">'+esc(x.error_message)+'</p>':'')+'<p class="muted">'+(hasMedia?"已保存媒体文件 / 预览资源":"已保存文案或任务信息")+'</p><div class="actions"><button class="btn" onclick="previewCreativeWork(\''+esc(x.id)+'\')">'+preview+'</button><button class="btn secondary small" onclick="downloadCreativeWork(\''+esc(x.id)+'\')">下载</button>'+(kind==="video"&&x.status==="failed"?'<button class="btn small" data-retry-video="'+esc(x.id)+'" onclick="retryCreativeVideo(\''+esc(x.id)+'\')">重新提交视频生成</button>':'')+'<button class="btn danger small" onclick="deleteCreativeWork(\''+esc(x.id)+'\')">删除</button></div></div>';
   }).join("")+'</div>';
 }
 async function subtitleStudio(){
