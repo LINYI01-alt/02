@@ -258,13 +258,13 @@ async function ai(){
     f("画面风格","studioVisualStyle","select","realistic",false,[["realistic","写实 / 纪实"],["cinematic","电影感"],["animation","动画 / 3D"],["illustration","扁平插画"],["minimal","简洁产品展示"]])+
     f("镜头运动","studioCamera","select","dynamic",false,[["static","固定镜头"],["dynamic","平稳推拉 / 运镜"],["tracking","跟拍 / 移动镜头"],["montage","多镜头快速剪辑"]])+
     f("声音方案","studioAudio","select","voice_music",false,[["silent","无声画面，后期配音"],["voice_music","需要配音与背景音乐"],["music_only","仅背景音乐"],["voice_only","仅配音"]])+
-    f("字幕方案","studioSubtitle","select","burned",false,[["burned","画面内预留字幕 / 字幕呈现"],["post","后期单独添加字幕"],["none","不需要字幕"]])+
-    '</div><div class="muted">时长、比例等选项会作为视频生成参数提交；配音、音乐与字幕是生成提示要求，最终是否由模型直接生成取决于当前视频模型能力，必要时需后期制作。</div></div>'+
+    f("字幕方案","studioSubtitle","select","auto",false,[["auto","自动配字幕（生成可编辑 SRT / VTT 文件）"],["burned","画面内预留字幕 / 字幕呈现"],["post","后期单独添加字幕"],["none","不需要字幕"]])+
+    '</div><div class="muted">选择“自动配字幕”后，可根据已审核脚本生成可编辑的 SRT / VTT 字幕文件并下载，导入剪映、CapCut 等工具校准时间轴后合成；时间为估算值，必须按实际口播校准。画面内字幕仍取决于视频模型能力。</div></div>'+
     '<div id="studioImageOptions" class="formgrid">'+
     f("图片尺寸","studioSize","select","1024x1536",false,[["1024x1536","竖版 2:3"],["1024x1024","方图 1:1"],["1536x1024","横版 3:2"]])+
     f("图片 / 图集张数","studioCount","select","4",false,[["1","1张"],["2","2张"],["3","3张"],["4","4张"]])+
     '</div>'+
-    '</div><div class="field wide"><label>成片画面抽帧审核（可选，MP4 / MOV，最大 200 MB、5 分钟）</label><input id="studioReviewVideo" type="file" accept="video/mp4,video/quicktime,video/webm"><div class="muted">浏览器本地抽取 6 张关键帧，不上传整段视频；需同时填写字幕/口播稿，音轨与音乐版权仍需人工核验。</div></div><div class="field wide"><label>成片字幕 / 口播稿（用于画面对照）</label><textarea id="studioReviewText" placeholder="粘贴视频字幕、口播稿或脚本文案"></textarea></div><div class="actions"><button class="btn" id="studioText">生成文字与分镜</button><button class="btn secondary" id="studioImages">生成图集图片</button><button class="btn secondary" id="studioVideo">生成视频</button><button class="btn" id="studioAuto">一键合规创作</button><button class="btn secondary" id="studioFrameReview">审核已生成视频画面</button></div><div class="notice">自动流程：生成脚本 → AI 创作前风控 → 低风险才提交视频任务。可另行上传成片进行抽帧画面预审；抽帧不等于完整视频/音轨审查，且不能自动替代人工医学、版权和最终发布复核。</div></div>'+
+    '</div><div class="field wide"><label>成片画面抽帧审核（可选，MP4 / MOV，最大 200 MB、5 分钟）</label><input id="studioReviewVideo" type="file" accept="video/mp4,video/quicktime,video/webm"><div class="muted">浏览器本地抽取 6 张关键帧，不上传整段视频；需同时填写字幕/口播稿，音轨与音乐版权仍需人工核验。</div></div><div class="field wide"><label>成片字幕 / 口播稿（用于画面对照）</label><textarea id="studioReviewText" placeholder="粘贴视频字幕、口播稿或脚本文案"></textarea></div><div class="actions"><button class="btn" id="studioText">生成文字与分镜</button><button class="btn secondary" id="studioImages">生成图集图片</button><button class="btn secondary" id="studioVideo">生成视频</button><button class="btn" id="studioAuto">一键合规创作</button><button class="btn secondary" id="studioFrameReview">审核已生成视频画面</button><button class="btn secondary" id="studioMakeSubtitles">生成配字幕文件</button></div><div class="notice">自动流程：生成脚本 → AI 创作前风控 → 低风险才提交视频任务。可另行上传成片进行抽帧画面预审；抽帧不等于完整视频/音轨审查，且不能自动替代人工医学、版权和最终发布复核。</div></div>'+
     '<div id="studioStatus" class="notice hidden"></div><div id="studioResult" class="panel hidden"></div><div id="studioControlPanel" class="panel"><h3>创作流程内置审核与发布封控</h3><div class="muted">创作预审、人工复核待办、历史风控结论统一显示在这里。未通过、待整改或需人工复核的作品不会进入可发布状态。</div><div id="studioQueue" class="muted">正在读取审核待办…</div><div id="studioRiskHistory" class="muted">正在读取风控记录…</div></div><div class="panel"><h3>网站数据参考</h3><div class="muted">每次创作由服务端读取近期作品表现和关键词；不把未录入的数据当作真实数据。</div></div>');
   const status=$("studioStatus"),result=$("studioResult");
   let activeStudioScriptId=null;
@@ -282,6 +282,24 @@ async function ai(){
   };
   await refreshIntegratedReview();
   const setStatus=(s)=>{status.classList.remove("hidden");status.textContent=s};
+  const buildSubtitleCues=(text,duration)=>{
+    const clean=String(text||"").replace(/\\r/g,"").replace(/[\\t ]+/g," ").trim();
+    const sentences=clean.split(/(?<=[。！？!?；;，,：:])|\\n+/).map(x=>x.trim()).filter(Boolean);
+    const chunks=[];
+    for(const sentence of sentences){
+      let rest=sentence;
+      while(rest.length>18){let cut=rest.lastIndexOf("，",18);if(cut<8)cut=rest.lastIndexOf("、",18);if(cut<8)cut=18;chunks.push(rest.slice(0,cut).trim());rest=rest.slice(cut).trim()}
+      if(rest)chunks.push(rest);
+    }
+    if(!chunks.length)return [];
+    const total=Math.max(1,Number(duration)||30),weights=chunks.map(x=>Math.max(1,x.replace(/\\s/g,"").length)),sum=weights.reduce((a,b)=>a+b,0);
+    let cursor=0;
+    return chunks.map((content,index)=>{const start=cursor;cursor+=total*weights[index]/sum;return {index:index+1,start,end:index===chunks.length-1?total:cursor,text:content}});
+  };
+  const srtTime=s=>{const ms=Math.max(0,Math.round(s*1000)),hh=String(Math.floor(ms/3600000)).padStart(2,"0"),mm=String(Math.floor(ms%3600000/60000)).padStart(2,"0"),ss=String(Math.floor(ms%60000/1000)).padStart(2,"0"),mmm=String(ms%1000).padStart(3,"0");return hh+":"+mm+":"+ss+","+mmm};
+  const vttTime=s=>srtTime(s).replace(",",".");
+  const subtitleText=(cues,format)=>format==="vtt"?"WEBVTT\\n\\n"+cues.map(c=>vttTime(c.start)+" --> "+vttTime(c.end)+"\\n"+c.text).join("\\n\\n"):cues.map(c=>c.index+"\\n"+srtTime(c.start)+" --> "+srtTime(c.end)+"\\n"+c.text).join("\\n\\n");
+  const downloadSubtitle=(content,name,type)=>{const blob=new Blob([new Uint8Array([0xEF,0xBB,0xBF]),content],{type});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url)};
   const videoPrompt=()=>[
     "视频画面风格："+$("studioVisualStyle").selectedOptions[0].text,
     "镜头运动："+$("studioCamera").selectedOptions[0].text,
@@ -291,7 +309,7 @@ async function ai(){
   ].join("；");
   const callStudio=async(action,approvedScript,approvedScriptId)=>{const isVideo=action==="video_start";const baseBrief=$("studioBrief").value.trim();const brief=isVideo?[baseBrief,videoPrompt()].filter(Boolean).join("\\n视频制作参数："):baseBrief;const {data,error}=await db.functions.invoke("aihubmix-studio",{body:{action,topic:$("studioTopic").value.trim(),content_type:$("studioType").value,brief,approved_script:approvedScript||undefined,approved_script_id:approvedScriptId||undefined,size:isVideo?$("studioVideoSize").value:$("studioSize").value,count:Number($("studioCount").value),seconds:$("studioDuration").value}});if(error)throw error;if(data.error)throw new Error(data.error);return data};
   const riskCheck=async(title,content,scriptId,frames)=>{const body={title,content,script_id:scriptId||undefined,content_type:"short_video"};if(frames?.length)body.frames=frames;const {data,error}=await db.functions.invoke("content-risk-check",{body});if(error)throw error;if(data.error)throw new Error(data.error);return data};
-  const buttons=["studioText","studioImages","studioVideo","studioAuto","studioFrameReview"].map($);
+  const buttons=["studioText","studioImages","studioVideo","studioAuto","studioFrameReview","studioMakeSubtitles"].map($);
   const busy=async(fn)=>{if(!$("studioTopic").value.trim()){toast("请先填写创作主题");return}buttons.forEach(b=>b.disabled=true);result.classList.add("hidden");try{await fn()}catch(e){setStatus("流程暂停："+(e.message||e))}finally{buttons.forEach(b=>b.disabled=false)}};
   const showBlocked=(data)=>{
     const report=data.safety_review||{},findings=Array.isArray(report.findings)?report.findings:[];
@@ -353,6 +371,25 @@ async function ai(){
       const check=$("studioCheckVideo");if(check)check.onclick=async()=>{check.disabled=true;try{const {data:d,error:e}=await db.functions.invoke("aihubmix-studio",{body:{action:"video_status",video_id:id}});if(e)throw e;$("studioVideoOutput").textContent=JSON.stringify(d.result,null,2)}catch(e){toast("查询失败："+(e.message||e))}finally{check.disabled=false}};
     }
     setStatus("已完成本次操作。AI 输出均为待核验内容。");
+  });
+  $("studioMakeSubtitles").onclick=()=>busy(async()=>{
+    let script="";
+    if(activeStudioScriptId){
+      const saved=await db.from("creative_scripts").select("script_body,content_risk_status").eq("id",activeStudioScriptId).eq("user_id",user.id).single();
+      if(saved.error)throw saved.error;
+      if(saved.data.content_risk_status!=="passed")throw new Error("严格安全模式要求先完成脚本审核，才能生成配字幕。");
+      script=String(saved.data.script_body||"");
+    }else script=$("studioTextOutput")?.textContent||"";
+    if(!script.trim())throw new Error("请先生成并审核脚本，再生成配字幕。");
+    const duration=Number($("studioDuration").value)||30,cues=buildSubtitleCues(script,duration);
+    if(!cues.length)throw new Error("脚本内容为空，无法生成字幕。");
+    const base=($("studioTopic").value.trim()||"video-subtitles").replace(/[^\\w\\-\\u4e00-\\u9fa5]+/g,"_");
+    result.classList.remove("hidden");
+    result.innerHTML='<h3>自动配字幕（可编辑时间轴）</h3><p class="muted">已按 '+duration+' 秒视频时长生成 '+cues.length+' 条字幕。时间轴按文字长度估算，并非语音识别结果；请对照实际口播逐条校准。修改下方字幕内容后再下载。</p><textarea id="studioSubtitleOutput" rows="14" style="width:100%;font-family:monospace"></textarea><div class="actions"><button class="btn" id="studioDownloadSrt">下载 SRT 字幕</button><button class="btn secondary" id="studioDownloadVtt">下载 VTT 字幕</button></div><div class="notice">建议将字幕文件导入剪映 / CapCut，对照真实口播调整每条字幕的开始和结束时间；核对错别字、专有名词及平台合规要求后再导出成片。</div>';
+    const initial=subtitleText(cues,"srt");$("studioSubtitleOutput").value=initial;
+    $("studioDownloadSrt").onclick=()=>downloadSubtitle($("studioSubtitleOutput").value,base+".srt","text/srt;charset=utf-8");
+    $("studioDownloadVtt").onclick=()=>{const parsed=$("studioSubtitleOutput").value.trim().split(/\\n\\s*\\n/).map(block=>{const lines=block.split("\\n").filter(Boolean);const timeIndex=lines.findIndex(line=>line.includes("-->"));if(timeIndex<0)return null;return {time:lines[timeIndex].replace(",", "."),text:lines.slice(timeIndex+1).join("\\n")}}).filter(Boolean);downloadSubtitle("WEBVTT\\n\\n"+parsed.map(x=>x.time+"\\n"+x.text).join("\\n\\n"),base+".vtt","text/vtt;charset=utf-8")};
+    setStatus("字幕草稿已生成；请校准时间轴后下载。");
   });
   $("studioFrameReview").onclick=()=>busy(async()=>{
     const file=$("studioReviewVideo").files[0], transcript=$("studioReviewText").value.trim();
