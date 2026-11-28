@@ -143,10 +143,36 @@ async function recheckCreativeScript(projectId,scriptId,textValue,contentType){
   await updateCreativeProject(projectId,{generated_text:body,risk_review_id:report.review_id||null,status:ready?"script_ready":(report.decision==="blocked"?"blocked":"needs_review"),outputs:{safety_review:report}});
   return {report,ready};
 }
+async function deleteCreativeWork(id){
+  if(!confirm("确定删除这条作品记录吗？删除后无法恢复。"))return;
+  const q=await db.from("creative_projects").delete().eq("id",id).eq("user_id",user.id);
+  if(q.error){toast("删除失败："+q.error.message);return}
+  toast("作品已删除");
+  const active=document.querySelector('[data-studio-mode].active')?.dataset.studioMode||"subtitle";
+  if(active==="subtitle")await subtitleStudio();else if(active==="graphic")await graphicStudio();else await videoStudio();
+}
+async function downloadCreativeWork(id){
+  const q=await db.from("creative_projects").select("id,title,work_type,generated_text,outputs,status").eq("id",id).eq("user_id",user.id).single();
+  if(q.error){toast("读取作品失败："+q.error.message);return}
+  const w=q.data,o=w.outputs||{},safe=(w.title||"AI作品").replace(/[\\/:*?"<>|]/g,"_");
+  const saveText=(name,content,type="text/plain;charset=utf-8")=>{const a=document.createElement("a"),u=URL.createObjectURL(new Blob([content||""],{type}));a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1500)};
+  const urls=[];
+  const scan=(v)=>{if(!v||typeof v!=="object")return;if(Array.isArray(v)){v.forEach(scan);return}for(const [k,x] of Object.entries(v)){if(typeof x==="string"&&/^https?:\\/\\//i.test(x)&&/(url|video|image|download|file)/i.test(k))urls.push(x);else if(x&&typeof x==="object")scan(x)}};
+  scan(o);
+  if(urls.length){
+    [...new Set(urls)].forEach((url,i)=>{const a=document.createElement("a");a.href=url;a.target="_blank";a.rel="noopener";a.download=safe+"-"+(i+1);document.body.appendChild(a);a.click();a.remove()});
+    if(w.generated_text)saveText(safe+"-文案.txt",w.generated_text);
+    toast("已发起文件下载；若浏览器拦截多个文件，请允许本站下载");
+  }else if(w.generated_text){saveText(safe+".txt",w.generated_text);toast("作品文案已下载")}
+  else if(o.provider_result||o.latest_status){saveText(safe+"-视频任务信息.json",JSON.stringify(o.provider_result||o.latest_status,null,2),"application/json;charset=utf-8");toast("当前保存的是视频任务信息，成片尚无可下载地址")}
+  else {saveText(safe+"-作品信息.json",JSON.stringify({title:w.title,status:w.status,outputs:o},null,2),"application/json;charset=utf-8");toast("已下载作品信息")}
+}
 async function creativeHistory(kind){
   const q=await db.from("creative_projects").select("id,title,status,created_at,error_message").eq("user_id",user.id).eq("work_type",kind).order("created_at",{ascending:false}).limit(12);
   if(q.error)throw q.error;
-  return table(["作品名称","状态","创建时间","说明"],(q.data||[]).map(x=>[esc(x.title),esc(x.status),date(x.created_at),esc(x.error_message||"—")]));
+  const rows=q.data||[];
+  if(!rows.length)return '<p class="muted">暂无作品记录。</p>';
+  return '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">'+rows.map(x=>'<div class="panel"><h4>'+esc(x.title||"未命名作品")+'</h4><p class="muted">状态：'+esc(x.status)+' · '+date(x.created_at)+'</p>'+(x.error_message?'<p class="muted">'+esc(x.error_message)+'</p>':'')+'<div class="actions"><button class="btn secondary small" onclick="downloadCreativeWork(\''+esc(x.id)+'\')">下载作品</button><button class="btn danger small" onclick="deleteCreativeWork(\''+esc(x.id)+'\')">删除作品</button></div></div>').join("")+'</div>';
 }
 async function subtitleStudio(){
   const history=await creativeHistory("subtitle");
