@@ -314,6 +314,24 @@ async function subtitleStudio(){
     };
   }
 }
+async function uploadCreativeReferenceFiles(kind,projectId,inputId,acceptPrefix,maxCount,maxBytes){
+  const input=$(inputId),files=Array.from(input?.files||[]);
+  if(!files.length)return [];
+  if(files.length>maxCount)throw new Error("参考文件最多选择 "+maxCount+" 个");
+  const saved=[];
+  for(let i=0;i<files.length;i++){
+    const file=files[i];
+    if(!file.type.startsWith(acceptPrefix))throw new Error("参考文件格式不支持："+file.name);
+    if(file.size>maxBytes)throw new Error("参考文件过大："+file.name);
+    const safe=file.name.replace(/[^\w.\-\u4e00-\u9fa5]/g,"_").slice(-80);
+    const path=user.id+"/creative/"+projectId+"/reference-"+kind+"-"+Date.now()+"-"+i+"-"+safe;
+    const up=await db.storage.from("creator-assets").upload(path,file,{contentType:file.type,upsert:true});
+    if(up.error)throw up.error;
+    const signed=await creativeSignedUrl(path);
+    saved.push({name:file.name,storage_path:path,mime_type:file.type,size:file.size,url:signed});
+  }
+  return saved;
+}
 async function graphicStudio(){
   const history=await creativeHistory("graphic");
   ($("aiStudioContent")||$("content")).innerHTML=shell("图文作品创作系统","独立图文流程：AI 生成分页文案 → 作品风险检测 → AI 生成统一视觉素材 → 文字排版合成 → 下载高清 PNG。",'<div class="panel"><div class="formgrid">'+
@@ -321,9 +339,11 @@ async function graphicStudio(){
     f("图文风格要求","graBrief","textarea","清晰、专业、适合手机阅读；每页重点突出，统一视觉风格。",true)+
     f("图片张数","graCount","select","4",false,[["1","1 张"],["2","2 张"],["3","3 张"],["4","4 张"]])+
     f("图片尺寸","graSize","select","1024x1536",false,[["1024x1536","竖版 2:3"],["1024x1024","方图 1:1"],["1536x1024","横版 3:2"]])+
+    '<div class="field"><label>参考图集（最多 5 张，JPG / PNG / WebP，每张不超过 10MB）</label><input id="graReferenceFiles" type="file" accept="image/jpeg,image/png,image/webp" multiple><div id="graReferencePreview" class="muted">可上传风格、构图、配色或版式参考图；仅作为创作参考。</div></div>'+
     '</div><div class="actions"><button class="btn" id="graGenerate">一键生成图文内容</button><button class="btn secondary" id="graImages" disabled>生成配套图片并排版</button></div><div id="graResult" class="panel hidden"></div></div><div class="panel"><h3>图文作品记录</h3>'+history+'</div>');
-  let projectId=null,scriptId=null,scriptText="",verified=false,images=[],compositePaths=[];
+  let projectId=null,scriptId=null,scriptText="",verified=false,images=[],compositePaths=[],graphicReferences=[];
   const box=$("graResult");
+  $("graReferenceFiles").onchange=()=>{const files=Array.from($("graReferenceFiles").files||[]);$("graReferencePreview").innerHTML=files.length?files.map(f=>'<div>'+esc(f.name)+' · '+(f.size/1024/1024).toFixed(1)+' MB</div>').join(""):"可上传风格、构图、配色或版式参考图；仅作为创作参考。"};
   $("graGenerate").onclick=async()=>{
     const topic=$("graTopic").value.trim(),brief=$("graBrief").value.trim();if(!topic){toast("请填写图文主题");return}
     const b=$("graGenerate");b.disabled=true;b.textContent="正在生成并审核…";$("graImages").disabled=true;
@@ -343,10 +363,14 @@ async function graphicStudio(){
     if(!verified){toast("请先完成作品风险检测");return}
     const b=$("graImages");b.disabled=true;b.textContent="正在生成图片…";
     try{
-      const {data,error}=await db.functions.invoke("aihubmix-studio",{body:{action:"image",topic:$("graTopic").value.trim(),brief:$("graBrief").value.trim()+"\n图文分页内容："+$("graText").value,size:$("graSize").value,count:Number($("graCount").value),content_type:"graphic_carousel",approved_script:$("graText").value,approved_script_id:scriptId}});
+      if(!graphicReferences.length&&$("graReferenceFiles").files.length){
+        graphicReferences=await uploadCreativeReferenceFiles("graphic",projectId,"graReferenceFiles","image/",5,10*1024*1024);
+      }
+      const referencePrompt=graphicReferences.length?"\n参考图集（仅参考视觉风格/构图，不复制受版权保护的具体作品）：\n"+graphicReferences.map((x,i)=>"参考图"+(i+1)+"："+x.url).join("\n"):"";
+      const {data,error}=await db.functions.invoke("aihubmix-studio",{body:{action:"image",topic:$("graTopic").value.trim(),brief:$("graBrief").value.trim()+"\n图文分页内容："+$("graText").value+referencePrompt,size:$("graSize").value,count:Number($("graCount").value),content_type:"graphic_carousel",approved_script:$("graText").value,approved_script_id:scriptId,reference_images:graphicReferences.map(x=>x.url)}});
       if(error)throw error;if(data.blocked)throw new Error(data.note||"媒体生成未放行");
       images=data.images||[];if(!images.length)throw new Error("图片模型没有返回可用图片");
-      await updateCreativeProject(projectId,{status:"assets_generated",generated_text:$("graText").value,outputs:{images:images.map(x=>({url:x.url,storage_path:x.storage_path||null,stored:!!x.stored})),count:images.length}});
+      await updateCreativeProject(projectId,{status:"assets_generated",generated_text:$("graText").value,outputs:{images:images.map(x=>({url:x.url,storage_path:x.storage_path||null,stored:!!x.stored})),reference_images:graphicReferences,count:images.length}});
       const cards=images.map((im,i)=>'<div class="panel"><img src="'+esc(im.url||"")+'" alt="图文视觉素材" style="width:100%;border-radius:10px"><p>第 '+(i+1)+' 张视觉素材</p><a href="'+esc(im.url||"")+'" target="_blank" rel="noopener">打开 / 下载原图</a><button class="btn secondary small" data-gra-compose="'+i+'">合成文字成品图</button><div id="graComposite'+i+'"></div></div>').join("");
       $("graCards").innerHTML='<h3>配套视觉素材</h3><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">'+cards+'</div>';
       document.querySelectorAll("[data-gra-compose]").forEach(btn=>btn.onclick=()=>composeGraphic(Number(btn.dataset.graCompose)));
@@ -384,9 +408,11 @@ async function videoStudio(){
     f("视频画幅","vidSize","select","720x1280",false,[["720x1280","竖屏 9:16"],["1280x720","横屏 16:9"],["720x720","方屏 1:1"]])+
     f("画面风格","vidStyle","select","realistic",false,[["realistic","写实 / 纪实"],["cinematic","电影感"],["animation","动画 / 3D"],["illustration","扁平插画"]])+
     f("声音方案","vidAudio","select","voice_music",false,[["voice_music","配音与背景音乐"],["voice_only","仅配音"],["music_only","仅背景音乐"],["silent","无声画面"]])+
+    '<div class="field"><label>参考视频（最多 2 个，MP4 / WebM / MOV，每个不超过 50MB）</label><input id="vidReferenceFiles" type="file" accept="video/mp4,video/webm,video/quicktime" multiple><div id="vidReferencePreview" class="muted">可上传镜头节奏、运镜、场景或剪辑风格参考视频；仅用于参考，不会直接复制原片。</div></div>'+
     '</div><div class="actions"><button class="btn" id="vidGenerate">一键生成视频脚本</button><button class="btn secondary" id="vidStart" disabled>提交 AI 视频生成</button></div><div id="vidResult" class="panel hidden"></div></div><div class="panel"><h3>视频作品记录</h3>'+history+'</div>');
-  let projectId=null,scriptId=null,verified=false,taskId=null;
+  let projectId=null,scriptId=null,verified=false,taskId=null,videoReferences=[];
   const box=$("vidResult");
+  $("vidReferenceFiles").onchange=()=>{const files=Array.from($("vidReferenceFiles").files||[]);$("vidReferencePreview").innerHTML=files.length?files.map(f=>'<div>'+esc(f.name)+' · '+(f.size/1024/1024).toFixed(1)+' MB</div>').join(""):"可上传镜头节奏、运镜、场景或剪辑风格参考视频；仅用于参考。"};
   $("vidGenerate").onclick=async()=>{
     const topic=$("vidTopic").value.trim(),brief=$("vidBrief").value.trim();if(!topic){toast("请填写视频主题");return}
     const b=$("vidGenerate");b.disabled=true;b.textContent="正在生成脚本并审核…";$("vidStart").disabled=true;
@@ -406,10 +432,14 @@ async function videoStudio(){
     if(!verified){toast("脚本尚未通过风险检测");return}
     const b=$("vidStart");b.disabled=true;b.textContent="正在提交视频任务…";
     try{
-      const {data,error}=await db.functions.invoke("aihubmix-studio",{body:{action:"video_start",topic:$("vidTopic").value.trim(),brief:$("vidBrief").value.trim()+"；风格："+$("vidStyle").value+"；声音："+$("vidAudio").value,content_type:"short_video",seconds:$("vidDuration").value,size:$("vidSize").value,approved_script:$("vidText").value,approved_script_id:scriptId}});
+      if(!videoReferences.length&&$("vidReferenceFiles").files.length){
+        videoReferences=await uploadCreativeReferenceFiles("video",projectId,"vidReferenceFiles","video/",2,50*1024*1024);
+      }
+      const refBrief=videoReferences.length?"；参考视频（仅参考镜头语言、节奏、运镜和场景，不复刻原片）："+videoReferences.map((x,i)=>"参考视频"+(i+1)+" "+x.url).join("；"):"";
+      const {data,error}=await db.functions.invoke("aihubmix-studio",{body:{action:"video_start",topic:$("vidTopic").value.trim(),brief:$("vidBrief").value.trim()+"；风格："+$("vidStyle").value+"；声音："+$("vidAudio").value+refBrief,content_type:"short_video",seconds:$("vidDuration").value,size:$("vidSize").value,approved_script:$("vidText").value,approved_script_id:scriptId,reference_videos:videoReferences.map(x=>x.url)}});
       if(error)throw error;if(data.blocked)throw new Error(data.note||"视频生成未通过安全检查");
       const v=data.result||{};taskId=v.id||v.task_id||v.video_id||"";
-      await updateCreativeProject(projectId,{status:"task_submitted",generated_text:$("vidText").value,outputs:{task_id:taskId,provider_result:v,model:data.model||null}});
+      await updateCreativeProject(projectId,{status:"task_submitted",generated_text:$("vidText").value,outputs:{task_id:taskId,provider_result:v,model:data.model||null,reference_videos:videoReferences}});
       $("vidTask").innerHTML='<h4>视频任务已提交</h4><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(JSON.stringify(v,null,2))+'</pre>'+(taskId?'<button class="btn" id="vidPoll">查询视频生成状态</button>':'')+'<div class="notice">任务提交成功不代表成片已完成。完成后仍需检查完整画面、口播、字幕、音乐版权、肖像授权和平台安全要求。</div>';
       if(taskId)$("vidPoll").onclick=async()=>{const q=$("vidPoll");q.disabled=true;try{const r=await db.functions.invoke("aihubmix-studio",{body:{action:"video_status",video_id:taskId}});if(r.error)throw r.error;$("vidTask").querySelector("pre").textContent=JSON.stringify(r.data?.result||r.data,null,2);await updateCreativeProject(projectId,{outputs:{task_id:taskId,latest_status:r.data?.result||r.data}})}catch(e){toast("查询失败："+(e.message||e))}finally{q.disabled=false}};
     }catch(e){await updateCreativeProject(projectId,{status:"failed",error_message:String(e.message||e).slice(0,1000)});toast("视频任务提交失败："+(e.message||e))}
