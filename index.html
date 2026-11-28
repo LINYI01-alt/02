@@ -215,6 +215,10 @@ async function downloadCreativeWork(id){
   if(!count){saveBlob(new Blob([JSON.stringify({title:w.title,status:w.status,outputs:o},null,2)],{type:"application/json;charset=utf-8"}),safe+"-作品信息.json");toast("已下载作品信息；视频成片尚未生成或未返回文件地址")}
   else toast("已发起 "+count+" 个文件下载；如浏览器提示，请允许本站下载多个文件");
 }
+// These handlers are rendered into dynamic HTML, so explicitly expose them to inline click events.
+window.previewCreativeWork=previewCreativeWork;
+window.downloadCreativeWork=downloadCreativeWork;
+window.deleteCreativeWork=deleteCreativeWork;
 async function creativeHistory(kind){
   const q=await db.from("creative_projects").select("id,title,status,created_at,error_message,generated_text,outputs").eq("user_id",user.id).eq("work_type",kind).order("created_at",{ascending:false}).limit(50);
   if(q.error)throw q.error;
