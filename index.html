@@ -274,8 +274,11 @@ async function subtitleStudio(){
         recorder.ondataavailable=e=>{if(e.data&&e.data.size)parts.push(e.data)};
         recorder.onstop=async()=>{
           const blob=new Blob(parts,{type:"video/webm"});download(blob,"滚动字幕作品.webm");stream.getTracks().forEach(t=>t.stop());
-          await updateCreativeProject(projectId,{status:"assets_generated",outputs:{export_format:"webm",file_size:blob.size,subtitle_format:"srt/vtt",rendered_at:new Date().toISOString()}});
-          $("subVerified").textContent="已生成 WebM 滚动字幕视频并下载。";
+          const path=user.id+"/creative/"+projectId+"/subtitle.webm";
+          const up=await db.storage.from("creator-assets").upload(path,blob,{contentType:"video/webm",upsert:true});
+          if(up.error)throw up.error;
+          await updateCreativeProject(projectId,{status:"assets_generated",outputs:{export_format:"webm",webm_path:path,file_size:blob.size,subtitle_format:"srt/vtt",rendered_at:new Date().toISOString()}});
+          $("subVerified").textContent="已生成并保存 WebM 滚动字幕视频，可在下方字幕作品库中预览和下载。";
         };
         recorder.start();const start=performance.now();
         const draw=(now)=>{
@@ -299,7 +302,7 @@ async function graphicStudio(){
     f("图片张数","graCount","select","4",false,[["1","1 张"],["2","2 张"],["3","3 张"],["4","4 张"]])+
     f("图片尺寸","graSize","select","1024x1536",false,[["1024x1536","竖版 2:3"],["1024x1024","方图 1:1"],["1536x1024","横版 3:2"]])+
     '</div><div class="actions"><button class="btn" id="graGenerate">一键生成图文内容</button><button class="btn secondary" id="graImages" disabled>生成配套图片并排版</button></div><div id="graResult" class="panel hidden"></div></div><div class="panel"><h3>图文作品记录</h3>'+history+'</div>');
-  let projectId=null,scriptId=null,scriptText="",verified=false,images=[];
+  let projectId=null,scriptId=null,scriptText="",verified=false,images=[],compositePaths=[];
   const box=$("graResult");
   $("graGenerate").onclick=async()=>{
     const topic=$("graTopic").value.trim(),brief=$("graBrief").value.trim();if(!topic){toast("请填写图文主题");return}
@@ -349,7 +352,7 @@ async function graphicStudio(){
       if(im.url){const img=new Image();img.crossOrigin="anonymous";await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=reject;img.src=im.url});ctx.drawImage(img,0,0,canvas.width,canvas.height)}
       paint();
     }catch(e){paint();target.innerHTML='<div class="muted">图片跨域限制，已使用内置品牌背景完成排版。</div>'}
-    canvas.toBlob(blob=>{if(!blob){toast("无法导出成品图");return}const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="图文作品-"+(index+1)+".png";a.click();setTimeout(()=>URL.revokeObjectURL(url),1200);target.innerHTML+='<div class="notice">已生成高清 PNG 成品图并下载。</div>'},"image/png");
+    canvas.toBlob(async blob=>{if(!blob){toast("无法导出成品图");return}const path=user.id+"/creative/"+projectId+"/graphic-"+(index+1)+".png";try{const up=await db.storage.from("creator-assets").upload(path,blob,{contentType:"image/png",upsert:true});if(up.error)throw up.error;compositePaths[index]=path;await updateCreativeProject(projectId,{status:"assets_generated",generated_text:$("graText").value,outputs:{images:images.map(x=>({url:x.url,storage_path:x.storage_path||null,stored:!!x.stored})),composite_paths:compositePaths.filter(Boolean),count:images.length}});const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="图文作品-"+(index+1)+".png";a.click();setTimeout(()=>URL.revokeObjectURL(url),1200);target.innerHTML+='<div class="notice">高清 PNG 成品图已保存到作品库，可在下方预览和下载。</div>'}catch(e){toast("成品图保存失败："+(e.message||e))}},"image/png");
   }
 }
 async function videoStudio(){
