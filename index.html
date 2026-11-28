@@ -86,7 +86,7 @@ async function metrics(){
   }
 }
 
-document.querySelectorAll("[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===p));$("content").innerHTML='<div class="panel empty">正在读取…</div>';try{await ({overview,videos,metrics,keywords,jobs,scripts,reviews,ai,subtitleStudio,graphicStudio,videoStudio,risk,antiRestriction,customerTarget,sources,assets,calendar,comments,knowledge,douyin})[p]()}catch(e){$("content").innerHTML='<div class="notice">读取失败：'+esc(e.message)+'</div>'}}async function saveCreativeProject(kind,topic,brief,config){
+document.querySelectorAll("[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===p));$("content").innerHTML='<div class="panel empty">正在读取…</div>';try{const pages={overview,videos,metrics,keywords,jobs,scripts,reviews,subtitleStudio,graphicStudio,videoStudio,antiRestriction,customerTarget,douyin};if(p==="ai"){await subtitleStudio()}else if(pages[p]){await pages[p]()}else{$("content").innerHTML=shell(titles[p]||"功能页面","该功能入口当前未配置独立页面。",'<div class="notice">此导航模块暂不可用，其他工作台功能不受影响。</div>')}}catch(e){$("content").innerHTML='<div class="notice">读取失败：'+esc(e.message)+'</div>'}}async function saveCreativeProject(kind,topic,brief,config){
   const q=await db.from("creative_projects").insert({user_id:user.id,work_type:kind,title:topic.slice(0,160),topic,brief,status:"generating",config:config||{}}).select("id").single();
   if(q.error)throw q.error;return q.data.id;
 }
