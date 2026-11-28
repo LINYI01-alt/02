@@ -150,7 +150,7 @@ async function creativeHistory(kind){
 }
 async function subtitleStudio(){
   const history=await creativeHistory("subtitle");
-  $("aiStudioContent").innerHTML=shell("滚动字幕创作系统","独立字幕创作流程：AI 生成文案 → 严格安全审核 → 编辑字幕 → 生成 SRT/VTT → 浏览器渲染滚动字幕视频。视频导出为 WebM，需使用支持 WebM 的播放器或剪辑软件。",'<div class="panel"><div class="formgrid">'+
+  $("aiStudioContent").innerHTML=shell("滚动字幕创作系统","独立字幕创作流程：AI 生成文案 → 作品风险检测 → 编辑字幕 → 生成 SRT/VTT → 浏览器渲染滚动字幕视频。视频导出为 WebM，需使用支持 WebM 的播放器或剪辑软件。",'<div class="panel"><div class="formgrid">'+
     f("作品主题","subTopic","text","例如：给正在努力生活的人一段鼓励",true)+
     f("创作要求","subBrief","textarea","温暖、真实、节奏清楚；适合竖屏滚动字幕，不夸大、不制造焦虑。",true)+
     f("视频时长（秒）","subDuration","number","30")+
@@ -173,7 +173,7 @@ async function subtitleStudio(){
   };
   function renderEditor(textValue,report){
     box.classList.remove("hidden");
-    box.innerHTML='<h3>字幕文案与作品预览</h3><p class="muted">作品已生成。查看风险等级提示；修改后重新检测可更新报告。</p>'+renderRiskPanel(report)+'<textarea id="subText" rows="12"></textarea><div class="actions"><button class="btn secondary" id="subRecheck">重新检测风险等级</button><button class="btn secondary" id="subSrt">下载 SRT</button><button class="btn secondary" id="subVtt">下载 VTT</button><button class="btn" id="subVideo">生成滚动字幕视频并下载</button></div><div class="notice" id="subVerified">审核状态：已通过。字幕时间轴按文本长度估算，非语音识别对轴。</div><canvas id="subCanvas" width="720" height="1280" style="display:block;width:min(260px,100%);height:auto;margin:16px auto;border:1px solid #444;border-radius:12px;background:#101827"></canvas>';
+    box.innerHTML='<h3>字幕文案与作品预览</h3><p class="muted">作品已生成。查看风险等级提示；修改后重新检测可更新报告。</p>'+renderRiskPanel(report)+'<textarea id="subText" rows="12"></textarea><div class="actions"><button class="btn secondary" id="subRecheck">重新检测风险等级</button><button class="btn secondary" id="subSrt">下载 SRT</button><button class="btn secondary" id="subVtt">下载 VTT</button><button class="btn" id="subVideo">生成滚动字幕视频并下载</button></div><div class="notice" id="subVerified">已生成风险等级提示；请结合风险点判断是否需要修改。字幕时间轴按文本长度估算，非语音识别对轴。</div><canvas id="subCanvas" width="720" height="1280" style="display:block;width:min(260px,100%);height:auto;margin:16px auto;border:1px solid #444;border-radius:12px;background:#101827"></canvas>';
     $("subText").value=textValue;
     $("subText").oninput=()=>{verified=false;$("subVerified").textContent="审核状态：文案已修改，建议重新检测后导出。"};
     const getCues=()=>{
@@ -184,7 +184,7 @@ async function subtitleStudio(){
     const fmt=(n,comma)=>{const ms=Math.max(0,Math.round(n*1000)),h=String(Math.floor(ms/3600000)).padStart(2,"0"),m=String(Math.floor(ms%3600000/60000)).padStart(2,"0"),s=String(Math.floor(ms%60000/1000)).padStart(2,"0"),z=String(ms%1000).padStart(3,"0");return h+":"+m+":"+s+(comma?",":".")+z};
     const download=(blob,name)=>{const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};
     const requireVerified=()=>{if(!verified)throw new Error("文案修改后必须先完成风险复检。")};
-    $("subRecheck").onclick=async()=>{const b=$("subRecheck");b.disabled=true;try{const r=await recheckCreativeScript(projectId,scriptId,$("subText").value,"subtitle_video");verified=r.ready;$("subVerified").textContent=r.ready?"审核状态：修改稿复审通过。":"审核状态：未通过或需人工复核，禁止导出。"+(r.report.summary||"");if(!verified)toast("复审未放行，不能导出。")}catch(e){toast("复审失败："+(e.message||e))}finally{b.disabled=false}};
+    $("subRecheck").onclick=async()=>{const b=$("subRecheck");b.disabled=true;try{const r=await recheckCreativeScript(projectId,scriptId,$("subText").value,"subtitle_video");verified=r.ready;$("subVerified").textContent=r.ready?"审核状态：风险检测已完成。":"审核状态：未通过或需人工复核，禁止导出。"+(r.report.summary||"");if(!verified)toast("复审未放行，不能导出。")}catch(e){toast("复审失败："+(e.message||e))}finally{b.disabled=false}};
     $("subSrt").onclick=()=>{try{requireVerified();const s=getCues().map(x=>x.i+"\n"+fmt(x.start,true)+" --> "+fmt(x.end,true)+"\n"+x.text).join("\n\n");download(new Blob(["\uFEFF"+s],{type:"text/srt;charset=utf-8"}), "滚动字幕.srt")}catch(e){toast(e.message)}};
     $("subVtt").onclick=()=>{try{requireVerified();const s="WEBVTT\n\n"+getCues().map(x=>fmt(x.start,false)+" --> "+fmt(x.end,false)+"\n"+x.text).join("\n\n");download(new Blob([s],{type:"text/vtt;charset=utf-8"}),"滚动字幕.vtt")}catch(e){toast(e.message)}};
     $("subVideo").onclick=async()=>{
@@ -215,7 +215,7 @@ async function subtitleStudio(){
 }
 async function graphicStudio(){
   const history=await creativeHistory("graphic");
-  $("aiStudioContent").innerHTML=shell("图文作品创作系统","独立图文流程：AI 生成分页文案 → 严格安全审核 → AI 生成统一视觉素材 → 文字排版合成 → 下载高清 PNG。",'<div class="panel"><div class="formgrid">'+
+  $("aiStudioContent").innerHTML=shell("图文作品创作系统","独立图文流程：AI 生成分页文案 → 作品风险检测 → AI 生成统一视觉素材 → 文字排版合成 → 下载高清 PNG。",'<div class="panel"><div class="formgrid">'+
     f("图文主题","graTopic","text","例如：科学认识辅助生殖的六个常见问题",true)+
     f("图文风格要求","graBrief","textarea","清晰、专业、适合手机阅读；每页重点突出，统一视觉风格。",true)+
     f("图片张数","graCount","select","4",false,[["1","1 张"],["2","2 张"],["3","3 张"],["4","4 张"]])+
@@ -231,15 +231,15 @@ async function graphicStudio(){
       projectId=p.projectId;
       if(p.blocked){box.classList.remove("hidden");box.innerHTML='<h3>严重违规内容，暂不生成</h3><p>'+esc(p.report?.summary||"需要整改或人工复核")+'</p>';return}
       scriptId=p.scriptId;scriptText=p.text;verified=true;
-      box.classList.remove("hidden");box.innerHTML='<h3>图文分页文案（可编辑）</h3><p class="muted">作品已生成。修改后重新检测可更新报告。</p>'+renderRiskPanel(p.report)+'<textarea id="graText" rows="16"></textarea><div class="actions"><button class="btn secondary" id="graRecheck">重新检测风险等级</button></div><div class="notice" id="graVerify">审核状态：已通过。</div><div id="graCards"></div>';
+      box.classList.remove("hidden");box.innerHTML='<h3>图文分页文案（可编辑）</h3><p class="muted">作品已生成。修改后重新检测可更新报告。</p>'+renderRiskPanel(p.report)+'<textarea id="graText" rows="16"></textarea><div class="actions"><button class="btn secondary" id="graRecheck">重新检测风险等级</button></div><div class="notice" id="graVerify">已生成风险等级提示；请结合风险点判断是否需要修改。</div><div id="graCards"></div>';
       $("graText").value=scriptText;$("graText").oninput=()=>{verified=false;$("graVerify").textContent="文案已修改，请重新审核。";$("graImages").disabled=true};
-      $("graRecheck").onclick=async()=>{const x=await recheckCreativeScript(projectId,scriptId,$("graText").value,"graphic_carousel");verified=x.ready;scriptText=$("graText").value;$("graVerify").textContent=verified?"修改稿复审通过。":"复审未通过或需人工复核。";$("graImages").disabled=!verified};
+      $("graRecheck").onclick=async()=>{const x=await recheckCreativeScript(projectId,scriptId,$("graText").value,"graphic_carousel");verified=x.ready;scriptText=$("graText").value;$("graVerify").textContent=verified?"风险检测已完成。":"风险等级已更新，请查看提示。";$("graImages").disabled=!verified};
       $("graImages").disabled=!p.report?.review_id;
     }catch(e){box.classList.remove("hidden");box.textContent="生成失败："+(e.message||e)}
     finally{b.disabled=false;b.textContent="一键生成图文内容"}
   };
   $("graImages").onclick=async()=>{
-    if(!verified){toast("请先完成严格风控审核");return}
+    if(!verified){toast("请先完成作品风险检测");return}
     const b=$("graImages");b.disabled=true;b.textContent="正在生成图片…";
     try{
       const {data,error}=await db.functions.invoke("aihubmix-studio",{body:{action:"image",topic:$("graTopic").value.trim(),brief:$("graBrief").value.trim()+"\n图文分页内容："+$("graText").value,size:$("graSize").value,count:Number($("graCount").value),content_type:"graphic_carousel",approved_script:$("graText").value,approved_script_id:scriptId}});
@@ -276,7 +276,7 @@ async function graphicStudio(){
 }
 async function videoStudio(){
   const history=await creativeHistory("video");
-  $("aiStudioContent").innerHTML=shell("视频作品创作系统","独立视频流程：AI 生成脚本与分镜 → 严格安全审核 → 提交视频模型 → 查询生成任务 → 成片复核。是否能生成取决于已配置且可调用的视频模型。",'<div class="panel"><div class="formgrid">'+
+  $("aiStudioContent").innerHTML=shell("视频作品创作系统","独立视频流程：AI 生成脚本与分镜 → 作品风险检测 → 提交视频模型 → 查询生成任务 → 成片复核。是否能生成取决于已配置且可调用的视频模型。",'<div class="panel"><div class="formgrid">'+
     f("视频主题","vidTopic","text","例如：一分钟讲清楚一个常见知识点",true)+
     f("创作要求","vidBrief","textarea","竖屏、节奏清楚、原创表达；镜头画面与口播内容一致。",true)+
     f("视频时长","vidDuration","select","20",false,[["20","20 秒"],["30","30 秒"],["50","50 秒"]])+
@@ -296,7 +296,7 @@ async function videoStudio(){
       scriptId=p.scriptId;verified=true;
       box.classList.remove("hidden");box.innerHTML='<h3>视频脚本与分镜（可编辑）</h3>'+renderRiskPanel(p.report)+'<textarea id="vidText" rows="16"></textarea><div class="actions"><button class="btn secondary" id="vidRecheck">重新检测风险等级</button></div><div class="notice" id="vidVerify">脚本已完成生成后风险检测。视频成片仍须检查画面、音轨、字幕和素材授权。</div><div id="vidTask"></div>';
       $("vidText").value=p.text;$("vidText").oninput=()=>{verified=false;$("vidStart").disabled=true;$("vidVerify").textContent="脚本已修改，请重新审核。"};
-      $("vidRecheck").onclick=async()=>{const r=await recheckCreativeScript(projectId,scriptId,$("vidText").value,"short_video");verified=r.ready;$("vidStart").disabled=!verified;$("vidVerify").textContent=verified?"修改稿复审通过，可提交视频生成。":"复审未放行或需人工复核。"};
+      $("vidRecheck").onclick=async()=>{const r=await recheckCreativeScript(projectId,scriptId,$("vidText").value,"short_video");verified=r.ready;$("vidStart").disabled=!verified;$("vidVerify").textContent=verified?"风险检测已完成，可提交视频生成。":"风险等级已更新，请查看提示。"};
       $("vidStart").disabled=!p.report?.review_id;
     }catch(e){box.classList.remove("hidden");box.textContent="生成失败："+(e.message||e)}
     finally{b.disabled=false;b.textContent="重新生成视频脚本"}
@@ -480,7 +480,7 @@ async function reviews(){let d=await get("review_queue","id,review_type,status,r
 async function risk(){let scripts=await get("creative_scripts","id,topic,script_body,medical_review_status,content_risk_status,content_risk_score");let reports=await get("content_risk_reviews","id,content_title,risk_score,risk_level,decision,summary,created_at,script_id");let options='<option value="">仅检测本次输入（不关联脚本）</option>'+scripts.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.topic||"未命名脚本")+' · '+esc(x.content_risk_status||"pending")+'</option>').join("");$("content").innerHTML=shell("AI 发布风控系统","发布前对标题、口播、字幕、封面文案和话题进行全维度合规预审；规则库版本 douyin-public-rules-2026-11。",'<div class="panel"><div class="field"><label>关联原创脚本</label><select id="riskScript">'+options+'</select></div><div class="field"><label>作品标题</label><input id="riskTitle" placeholder="填写作品标题 / 封面标题"></div><div class="field"><label>作品正文、口播稿、字幕与话题标签</label><textarea id="riskContent" rows="12" placeholder="粘贴完整作品文案、口播稿、字幕和话题标签；内容越完整，检查越有参考价值。"></textarea></div><div class="actions"><button id="runRisk" class="btn">⛨ 开始 AI 风控检测</button></div><div class="notice"><b>全维度检查范围：</b>违法交易、医疗健康与辅助生殖（IVF/代孕/配子交易/性别选择）、医疗广告、虚假误导、营销导流、账号秩序、隐私、版权、暴力危险、色情低俗、未成年人、仇恨网暴、AI合成标识及低质生态。风险分 0–24 低、25–59 中、60–100 高。AI 只审查你提交的文本；未提交的视频画面、音轨、评论区、主页、私信和落地页仍需人工核验。AI 预审不是抖音官方审核结论；高风险医疗和辅助生殖内容必须人工复核。</div><div id="riskResult"></div></div><div class="panel"><h3>历史风控报告</h3>'+table(["作品","风险分","等级","结论","审核时间","摘要"],reports.map(x=>[esc(x.content_title||"未命名作品"),String(x.risk_score),esc(x.risk_level),esc(x.decision),date(x.created_at),esc(x.summary)]))+'</div>');const sel=$("riskScript"),title=$("riskTitle"),content=$("riskContent");function fill(){let x=scripts.find(s=>s.id===sel.value);if(x){title.value=x.topic||"";content.value=x.script_body||""}}if(riskPrefill){sel.value=riskPrefill.id;fill();riskPrefill=null}sel.onchange=fill;$("runRisk").onclick=async()=>{let b=$("runRisk"),box=$("riskResult"),text=content.value.trim();if(!text){toast("请先粘贴作品正文或脚本");return}b.disabled=true;b.textContent="AI 正在逐项检查…";box.innerHTML='<div class="notice">正在分析平台规则风险、医疗健康表达、营销宣传、原创版权及账号安全风险…</div>';try{let {data,error}=await db.functions.invoke("content-risk-check",{body:{title:title.value,content:text,script_id:sel.value||null,content_type:"douyin_short_video"}});if(error)throw error;if(data.error)throw new Error(data.error);let level=data.risk_level,decision=data.decision;let findings=(data.findings||[]).map(x=>'<div class="panel"><b>'+esc(x.category)+" · "+esc(x.severity)+"</b><p>"+esc(x.excerpt)+"</p><p>"+esc(x.reason)+"</p><div class=\"muted\">可能影响："+esc(x.platform_impact)+"</div><div class=\"muted\">规则依据："+esc(x.rule_basis||"需结合最新平台规则核验")+"</div></div>").join("")||'<div class="notice">未发现明显文本风险；仍需检查视频画面、音乐及素材授权。</div>';let suggestions=(data.rewrite_suggestions||[]).map(x=>'<div class="panel"><b>原表达：</b>'+esc(x.original)+'<p><b>建议改写：</b>'+esc(x.replacement)+'</p><div class="muted">'+esc(x.reason)+'</div></div>').join("");box.innerHTML='<div class="panel"><div class="panelhead"><h3>风控结论：'+(decision==="passed"?"可进入人工复核":decision==="blocked"?"高风险拦截":"需要修改")+"</h3><b>"+esc(data.risk_score)+"/100 · "+esc(level)+"</b></div><p>"+esc(data.summary)+"</p><div class=\"notice\">"+esc(data.platform_disclaimer)+"</div><h3>风险发现</h3>"+findings+"<h3>AI 修改建议</h3>"+(suggestions||'<p class="muted">暂无具体改写建议。</p>')+'</div>';if(data.human_review_required&&Number(data.risk_score)<25&&data.decision!=="blocked"){box.innerHTML+='<div class="panel"><h3>人工复核</h3><p class="muted">仅低风险且无高严重度发现的内容可由授权管理员确认；中高风险必须先整改复审。</p><button id="approveManualRisk" class="btn">确认已人工核验并批准</button></div>';$("approveManualRisk").onclick=async()=>{if(!confirm("请确认已核验完整画面、音轨、音乐/素材授权、主体资质及抖音官方通知。确认后仅批准当前低风险审核记录。"))return;const {data:approved,error:approveError}=await db.functions.invoke("approve-content-risk",{body:{review_id:data.review_id,confirm_manual_review:true}});if(approveError)throw approveError;if(approved.error)throw new Error(approved.error);toast("人工复核已记录；仍须遵守抖音官方要求");load("risk")}}}catch(e){box.innerHTML='<div class="notice">检测失败：'+esc(e.message||e)+'</div>'}finally{b.disabled=false;b.textContent="⛨ 重新进行 AI 风控检测"}}}function reviewForm(x){x=x||{};editor("审核事项",[f("类型","type","select",x.review_type||"medical",false,["medical","copyright","platform_compliance","engagement_reply"].map(v=>[v,v])),f("状态","status","select",x.status||"pending",false,["pending","approved","rejected","revision_required"].map(v=>[v,v])),f("作品 ID（可选）","video","text",x.video_id),f("脚本 ID（可选）","script","text",x.script_id),f("审核备注","notes","textarea",x.reviewer_notes,true)],async()=>{let o={user_id:user.id,review_type:$("type").value,status:$("status").value,video_id:$("video").value||null,script_id:$("script").value||null,reviewer_notes:$("notes").value,reviewed_at:$("status").value==="pending"?null:new Date().toISOString()},z=x.id?await db.from("review_queue").update(o).eq("id",x.id):await db.from("review_queue").insert(o);if(z.error)throw z.error})}
 
 async function ai(){
-  $("content").innerHTML=shell("AI 创作一体化工作台","一个工作台，三种独立创作模式。选择作品类型后，在同一工作区域完成生成、风险检测、编辑与导出。",'<div class="panel"><div class="actions" style="gap:10px;flex-wrap:wrap"><button class="btn" data-ai-mode="subtitle">▤ 滚动字幕创作</button><button class="btn secondary" data-ai-mode="graphic">▧ 图文作品创作</button><button class="btn secondary" data-ai-mode="video">▶ 视频作品创作</button></div><p class="muted">三种模式共用账号、作品记录与严格安全审核；各自保留专属生成参数和制作流程。切换模式不会删除已保存的作品。</p></div><div id="aiStudioContent"><div class="panel empty">正在加载创作工作区…</div></div>');
+  $("content").innerHTML=shell("AI 创作一体化工作台","一个工作台，三种独立创作模式。选择作品类型后，在同一工作区域完成生成、风险检测、编辑与导出。",'<div class="panel"><div class="actions" style="gap:10px;flex-wrap:wrap"><button class="btn" data-ai-mode="subtitle">▤ 滚动字幕创作</button><button class="btn secondary" data-ai-mode="graphic">▧ 图文作品创作</button><button class="btn secondary" data-ai-mode="video">▶ 视频作品创作</button></div><p class="muted">三种模式共用账号、作品记录与作品风险检测；各自保留专属生成参数和制作流程。切换模式不会删除已保存的作品。</p></div><div id="aiStudioContent"><div class="panel empty">正在加载创作工作区…</div></div>');
   const run=async mode=>{
     document.querySelectorAll("[data-ai-mode]").forEach(b=>b.classList.toggle("secondary",b.dataset.aiMode!==mode));
     await (mode==="subtitle"?subtitleStudio:mode==="graphic"?graphicStudio:videoStudio)();
@@ -555,7 +555,7 @@ async function legacyAi(){
   const showBlocked=(data)=>{
     const report=data.safety_review||{},findings=Array.isArray(report.findings)?report.findings:[];
     result.classList.remove("hidden");
-    result.innerHTML='<h3>严格安全模式：已暂停生成</h3><p>'+esc(data.note||"当前内容需要整改或人工复核。")+'</p>'+
+    result.innerHTML='<h3>作品风险提示：已暂停生成</h3><p>'+esc(data.note||"当前内容需要整改或人工复核。")+'</p>'+
       (data.account_safety_hold?'<div class="notice">账号存在已核实的限制/封禁事件，所有新创作已暂停。请先处理抖音官方通知。</div>':'')+
       (report.summary?'<p>'+esc(report.summary)+'</p>':'')+
       (data.text?'<h4>未放行的草稿（仅供整改，不可进入后续制作）</h4><pre style="white-space:pre-wrap">'+esc(data.text)+'</pre>':'')+
@@ -574,10 +574,10 @@ async function legacyAi(){
         $("studioApproveDraft").textContent="已批准";
       };
     }
-    setStatus(data.stage==="manual_review"?"低风险专业内容已保存，等待人工复核。":"严格安全模式已拦截：未通过预审或需要整改。");
+    setStatus(data.stage==="manual_review"?"低风险专业内容已保存，等待人工复核。":"作品风险提示已拦截：未通过预审或需要整改。");
   };
   const run=async(action)=>busy(async()=>{
-    setStatus("严格安全模式：正在读取规则并执行创作前预审…");
+    setStatus("作品风险提示：正在读取规则并执行创作前预审…");
     let data;
     if(action==="image"||action==="video_start"){
       let scriptText="",scriptId=activeStudioScriptId;
@@ -618,7 +618,7 @@ async function legacyAi(){
     if(activeStudioScriptId){
       const saved=await db.from("creative_scripts").select("script_body,content_risk_status").eq("id",activeStudioScriptId).eq("user_id",user.id).single();
       if(saved.error)throw saved.error;
-      if(saved.data.content_risk_status!=="passed")throw new Error("严格安全模式要求先完成脚本审核，才能生成配字幕。");
+      if(saved.data.content_risk_status!=="passed")throw new Error("作品风险提示要求先完成脚本审核，才能生成配字幕。");
       script=String(saved.data.script_body||"");
     }else script=$("studioTextOutput")?.textContent||"";
     if(!script.trim())throw new Error("请先生成并审核脚本，再生成配字幕。");
@@ -685,7 +685,7 @@ async function legacyAi(){
   $("studioAuto").onclick=()=>busy(async()=>{
     setStatus("第 1/4 步：生成原创脚本与分镜…");
     const draft=await callStudio("text");
-    if(draft.blocked){showBlocked(draft);setStatus("严格安全模式未放行，已停止一键创作。");return}
+    if(draft.blocked){showBlocked(draft);setStatus("作品风险提示未放行，已停止一键创作。");return}
     const script=draft.text||"";
     if(!script.trim())throw new Error("AI 未返回脚本，已停止");
     setStatus("第 2/4 步：保存待审核脚本并执行关联风控预审…");
